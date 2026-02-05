@@ -121,8 +121,46 @@ def print_trainable_parameters(model):
 
 
 def get_git_hash(path="."):
+    """Get git commit hash for a given directory"""
     try:
-        # 해당 경로의 git hash를 가져옴
-        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], cwd=path).decode().strip()
+        return subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=path,
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
     except Exception:
-        return "None"
+        return "unknown"
+
+
+def get_git_info() -> dict:
+    """Get git hashes for trainer and peft_jelly for experiment tracking"""
+    import os
+
+    # Trainer (jelly_trainer) hash
+    trainer_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    trainer_hash = get_git_hash(trainer_path)
+
+    # PEFT/JELLY hash (from peft_jelly submodule)
+    peft_jelly_path = os.path.join(trainer_path, "peft_jelly")
+    if os.path.exists(peft_jelly_path):
+        peft_hash = get_git_hash(peft_jelly_path)
+    else:
+        # Fallback: try to get from installed peft location
+        import peft
+        peft_path = os.path.dirname(peft.__file__)
+        peft_hash = get_git_hash(os.path.dirname(peft_path))
+
+    return {
+        "trainer_hash": trainer_hash,
+        "peft_hash": peft_hash,
+    }
+
+
+def log_git_info_to_wandb():
+    """Log git hashes to wandb for reproducibility"""
+    if wandb.run is not None:
+        git_info = get_git_info()
+        wandb.config.update(git_info, allow_val_change=True)
+        wandb.run.summary["trainer_hash"] = git_info["trainer_hash"]
+        wandb.run.summary["peft_hash"] = git_info["peft_hash"]
+        print(f"[GIT] Trainer: {git_info['trainer_hash']} | PEFT: {git_info['peft_hash']}")

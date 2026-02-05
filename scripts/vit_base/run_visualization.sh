@@ -3,8 +3,11 @@ export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 export PYTHONUNBUFFERED=1
 
+# Submodule sync (서버 이동 시 자동 동기화)
+git submodule update --init --recursive
+
 # ============================================================
-# LAVA Unified Visualization Engine
+# JELLY Unified Visualization Engine
 # ============================================================
 # 3가지 시각화:
 # 1. Cone vs. Tube (Uncertainty Stability)
@@ -20,14 +23,14 @@ GPU=0
 # 실험 설정
 SEED=42
 TASK="eurosat"                                    # 데이터셋: dtd, eurosat, gtsrb, resisc45, sun397, svhn
-METHODS="lava,lava_fullweight,lora"           # 비교할 메소드들 (하나의 그림에서 비교)
+METHODS="jelly,lora,pissa"                        # 비교할 메소드들 (하나의 그림에서 비교)
 
 # 시각화 파라미터
 NUM_SAMPLES=200                               # 시각화에 사용할 샘플 수
 NUM_PASSES=50                                 # Stochastic forward pass 횟수
 NUM_EPOCHS=20                                 # Loss landscape용 학습 에폭
 
-# LoRA/LAVA 파라미터
+# LoRA/JELLY 파라미터
 R=8
 ALPHA=8
 
@@ -40,7 +43,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "============================================================"
-echo " LAVA Unified Visualization Engine"
+echo " JELLY Unified Visualization Engine"
 echo "============================================================"
 echo " Task: $TASK"
 echo " Methods: $METHODS"
