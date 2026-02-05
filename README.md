@@ -39,10 +39,21 @@ pip install transformers datasets evaluate wandb accelerate deepspeed
 
 ### 3. Clone Repository with Submodule
 
+**주의**: 반드시 빈 디렉토리나 새 위치에 클론하세요. 기존 프로젝트 폴더 안에서 실행하면 중복 폴더가 생깁니다.
+
 ```bash
+# 홈 디렉토리나 원하는 위치로 이동
+cd ~
+
+# 새 폴더로 클론 (기존 jelly_trainer 폴더가 없어야 함)
 git clone --recursive https://github.com/merrybabyxmas/jelly_trainer.git
 cd jelly_trainer
+```
 
+이미 레포지토리가 있다면 서브모듈만 초기화:
+```bash
+cd /path/to/existing/jelly_trainer
+git submodule update --init --recursive
 ```
 
 ### 4. Install JELLY PEFT Extension (Editable Mode)
