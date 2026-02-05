@@ -16,6 +16,7 @@ import tempfile
 from peft import get_peft_model, LoraConfig, AdaLoraConfig
 from peft.tuners.jelly.config import JellyConfig
 from trainer.utils import get_git_hash
+
 from configs.task_config import (
     GLUE_META,
     PISSA_TASK_CONFIG,
@@ -277,10 +278,14 @@ def main(args):
     # Wandb 초기화 (조건부)
     if not args.no_wandb:
         wandb.init(
-            project=args.wandb_project,
-            name=run_name,
-            config=vars(args)
-        )
+        project=args.wandb_project,
+        name=run_name,
+        config={
+        **vars(args),
+        "trainer_hash": get_git_hash("."),             # 메인 레포 버전
+        "peft_hash": get_git_hash("./peft_jelly")      # 서브모듈(JELLY) 버전
+    }
+)
         # Parameter metrics
         wandb.run.summary["trainable_params"] = trainable_params
         wandb.run.summary["all_params"] = all_params

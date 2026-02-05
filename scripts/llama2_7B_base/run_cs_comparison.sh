@@ -2,6 +2,7 @@
 export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 export PYTHONUNBUFFERED=1
+git submodule update --init --recursive
 
 # ============================================================
 # Commonsense Reasoning Comparison: LAVA vs Other Methods (병렬 GPU 실행)
