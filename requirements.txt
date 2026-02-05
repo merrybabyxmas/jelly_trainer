@@ -1,0 +1,12 @@
+accelerate==1.2.1
+transformers==4.45.1
+datasets==3.2.0
+# peft는 peft_lava에서 설치됨 (setup.sh)
+vllm==0.6.2
+tensorboardX
+tqdm
+attrdict
+human_eval
+evalplus
+fraction
+wandb

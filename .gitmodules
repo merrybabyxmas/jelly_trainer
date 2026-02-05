@@ -1,0 +1,3 @@
+[submodule "peft_jelly"]
+	path = peft_jelly
+	url = https://github.com/merrybabyxmas/JELLY.git
