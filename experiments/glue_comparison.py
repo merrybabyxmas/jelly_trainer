@@ -8,7 +8,6 @@ JELLY와 다른 메소드(BitFit, LoRA, AdaLoRA, DoRA, PiSSA) 비교 실험
 
 import os
 import sys
-import subprocess
 import json
 import argparse
 import time
@@ -34,7 +33,7 @@ class GLUEComparisonRunner(BaseExperimentRunner):
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, methods=None, output_dir=None,
                  training_config=None, lora_config=None, jelly_config=None,
-                 use_wandb=True, wandb_project=None):
+                 use_wandb=True, wandb_project=None, model_name="microsoft/deberta-v3-base"):
         super().__init__(
             experiment_name="glue_comparison",
             seeds=seeds,
@@ -50,9 +49,7 @@ class GLUEComparisonRunner(BaseExperimentRunner):
         )
         self._tasks = tasks if tasks else GLUE_TASKS
         self._methods = methods if methods else COMPARISON_METHODS
-
-        # 결과 저장용 (thread-safe를 위해 락 사용)
-        self._results_cache = defaultdict(lambda: defaultdict(list))
+        self.model_name = model_name
 
     @property
     def csv_columns(self):
@@ -63,67 +60,72 @@ class GLUEComparisonRunner(BaseExperimentRunner):
         return self._tasks
 
     def run_single_experiment(self, method: str, task: str, seed: int,
-                               gpu_id: str = None) -> float:
-        """단일 실험 실행 (GPU ID 지정 가능)"""
+                               gpu_id: str = None) -> dict:
+        """단일 실험 실행 (GPU ID 지정 가능)
+
+        Returns:
+            dict: {"score": float, "oom": bool, "method": str, "task": str, "seed": int}
+        """
+        # train_nlu.py 실행 명령어 구성
         cmd = [
             "python", "train_nlu.py",
             "--adapter", method,
             "--task", task,
             "--seed", str(seed),
+            "--model", self.model_name,
         ] + self.build_training_args(method)
 
         job_name = f"{method}_{task}_s{seed}"
         result = {"method": method, "task": task, "seed": seed, "score": 0.0, "oom": False}
-        result_file = self.result_dir / f"img_result_{method}_{task}_r{self.lora_config.r}_s{seed}.json"
 
         if self.test_mode:
-            dummy = self.get_dummy_result()
-            time.sleep(0.5)  # 테스트 모드에서 병렬 동작 확인용
+            result["score"] = self.get_dummy_result()
+            time.sleep(0.5)
             self.update_progress(job_name)
-            return dummy
+            return result
 
-        # GPU ID가 지정된 경우 해당 GPU 사용
         use_gpu = gpu_id if gpu_id else self.gpus
         ret_code, stdout, stderr = self.run_subprocess_with_gpu(cmd, use_gpu, job_name)
 
-        if ret_code != 0:
-            return 0.0
-
-        # JSON 결과 파일 읽기
+        # OOM 감지 (SIGKILL = -9)
         if ret_code == -9:
             result["oom"] = True
             self.log(f"[OOM] {job_name} - GPU {use_gpu}에서 OOM 발생", "WARN")
             return result
 
+        if ret_code != 0:
+            return result
+
+        # 결과 파일 경로 (train_nlu.py 저장 형식: glue_result_{method}_{task}_r{r}_s{seed}.json)
+        result_file = self.result_dir / f"glue_result_{method}_{task}_r{self.lora_config.r}_s{seed}.json"
+
         if result_file.exists():
             with open(result_file, 'r') as f:
                 data = json.load(f)
-                score = data.get("best_metric", 0.0)
-                self.update_progress(f"{job_name} = {score:.4f}")
-                return score
-
-        return 0.0
+                result["score"] = data.get("best_score", 0.0)
+                self.update_progress(f"{job_name} = {result['score']:.4f}")
+        
+        return result
 
     def _job_executor(self, gpu_id: str, method: str, task: str, seed: int) -> dict:
         """병렬 작업 실행기"""
-        score = self.run_single_experiment(method, task, seed, gpu_id)
-        return {"method": method, "task": task, "seed": seed, "score": score}
+        return self.run_single_experiment(method, task, seed, gpu_id)
 
     def get_params_percentage(self, method: str) -> str:
-        """메소드별 파라미터 비율"""
+        """메소드별 파라미터 비율 (DeBERTa-v3-base 기준 대략적 수치)"""
         params_map = {
-            "bitfit": "0.12",
-            "lora": "0.35",
-            "adalora": "0.35",
-            "dora": "0.36",
-            "pissa": "0.35",
-            "jelly": "0.35"
+            "bitfit": "0.10",
+            "lora": "0.60", # DeBERTa는 모든 Linear에 붙이면 좀 더 큼
+            "adalora": "0.60",
+            "dora": "0.60",
+            "pissa": "0.60",
+            "jelly": "0.60"
         }
         return params_map.get(method, "-")
 
     def run_all_experiments(self):
         """모든 비교 실험 병렬 실행"""
-        self.save_metadata({"methods": self._methods})
+        self.save_metadata({"methods": self._methods, "model": self.model_name})
         self.init_csv()
 
         # 모든 실험 작업 생성
@@ -138,17 +140,17 @@ class GLUEComparisonRunner(BaseExperimentRunner):
                     })
 
         self.log(f"총 {len(jobs)}개 실험 준비 완료")
+        self.log(f"Model: {self.model_name}")
         self.log(f"Methods: {self._methods}")
         self.log(f"Tasks: {self._tasks}")
-        self.log(f"Seeds: {self.seeds}")
-
+        
         # 병렬 실행
         results = self.execute_parallel_jobs(jobs, self._job_executor)
 
         # 결과 집계 (method -> task -> [scores])
         method_results = defaultdict(lambda: defaultdict(list))
         for res in results:
-            if res:
+            if res and not res.get("oom", False) and res.get("score", 0) > 0:
                 method_results[res["method"]][res["task"]].append(res["score"])
 
         # CSV에 메소드별 결과 기록
@@ -184,45 +186,42 @@ class GLUEComparisonRunner(BaseExperimentRunner):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Image Classification Comparison (병렬 GPU 지원)")
+    parser = argparse.ArgumentParser(description="GLUE Comparison (병렬 GPU 지원)")
     parser.add_argument("--seeds", type=str, default="1,2,42")
-    parser.add_argument("--gpus", type=str, default="0",
-                        help="사용할 GPU ID (예: '0,1,2,3')")
-    parser.add_argument("--per_gpu_tasks", type=int, default=1,
-                        help="GPU당 동시 실행 작업 수")
+    parser.add_argument("--gpus", type=str, default="0")
+    parser.add_argument("--per_gpu_tasks", type=int, default=1)
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--tasks", type=str, default=None)
     parser.add_argument("--methods", type=str, default=None)
     parser.add_argument("--output_dir", type=str, default=None)
+    
+    # Model
+    parser.add_argument("--model", type=str, default="microsoft/deberta-v3-base")
 
     # wandb 설정
-    parser.add_argument("--no_wandb", action="store_true", help="wandb 비활성화")
-    parser.add_argument("--wandb_project", type=str, default="IMG-Comparison")
+    parser.add_argument("--no_wandb", action="store_true")
+    parser.add_argument("--wandb_project", type=str, default="GLUE-Comparison")
 
     # Training Config
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--lr", type=float, default=None, help="None이면 태스크별 기본값 사용")
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--warmup_ratio", type=float, default=0.1)
 
     # LoRA Config
-    parser.add_argument("--r", type=int, default=16)
-    parser.add_argument("--alpha", type=int, default=16)
+    parser.add_argument("--r", type=int, default=8)
+    parser.add_argument("--alpha", type=int, default=8)
     parser.add_argument("--lora_dropout", type=float, default=0.1)
-    parser.add_argument("--target_modules", type=str, default="query,key,value,dense",
-                        help="Comma-separated target modules (e.g., 'query,key,value,dense')")
+    parser.add_argument("--target_modules", type=str, default="query_proj,key_proj,value_proj,dense")
 
     # JELLY Config
     parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"],
-                        help="JELLY mode: parallel, sequential, or seq2par")
-    parser.add_argument("--switch_epoch", type=int, default=3,
-                        help="Epoch to switch from sequential to parallel")
+                        choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--switch_epoch", type=int, default=1)
 
     # Data Ratio
-    parser.add_argument("--train_data_ratio", type=int, default=100,
-                        help="Percentage of training data to use (1-100)")
+    parser.add_argument("--train_data_ratio", type=int, default=100)
 
     args = parser.parse_args()
 
@@ -244,13 +243,13 @@ def main():
         r=args.r,
         alpha=args.alpha,
         dropout=args.lora_dropout,
+        target_modules=args.target_modules,
     )
 
     jelly_config = JELLYConfig(
         jelly_mode=args.jelly_mode,
         switch_epoch=args.switch_epoch,
     )
-
 
     runner = GLUEComparisonRunner(
         seeds=seeds,
@@ -265,6 +264,7 @@ def main():
         jelly_config=jelly_config,
         use_wandb=use_wandb,
         wandb_project=args.wandb_project,
+        model_name=args.model
     )
 
     runner.run_all_experiments()

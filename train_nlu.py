@@ -1,11 +1,13 @@
 import argparse
 import torch
+import torch.nn as nn
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     TrainingArguments,
     Trainer,
+    DataCollatorWithPadding
 )
 import math
 from evaluate import load as load_metric
@@ -13,47 +15,63 @@ import wandb
 import os
 import json
 import tempfile
+import shutil
+import numpy as np
+import random
+
 from peft import get_peft_model, LoraConfig, AdaLoraConfig
 from peft.tuners.jelly.config import JellyConfig
-from trainer.utils import get_git_hash
-
-from configs.task_config import (
-    GLUE_META,
-    PISSA_TASK_CONFIG,
-    DORA_TASK_CONFIG,
-    LORA_TASK_CONFIG,
-    MOCA_TASK_CONFIG,
-    BITFIT_TASK_CONFIG,
-    ADALORA_TASK_CONFIG,
-)
 
 from trainer import (
     JellyNLUTrainer,
     setup_seed,
     register_jelly,
     BestMetricCallback,
-    print_trainable_parameters,
 )
+from trainer.utils import get_git_hash
 
 # JELLY 등록
 register_jelly()
 
-# ==========================================================
-# MaxEnt LAVA Trainer (🔥 CLEAN: FIXED LAMBDA, NO CONSTRAINT)
-# ==========================================================
+# ============================================================
+# GLUE 메타데이터 & 기본 설정
+# ============================================================
+GLUE_META = {
+    "cola": {"keys": ("sentence", None), "num_labels": 2, "metric": "matthews_correlation"},
+    "mnli": {"keys": ("premise", "hypothesis"), "num_labels": 3, "metric": "accuracy"},
+    "mrpc": {"keys": ("sentence1", "sentence2"), "num_labels": 2, "metric": "f1"}, # accuracy/f1
+    "qnli": {"keys": ("question", "sentence"), "num_labels": 2, "metric": "accuracy"},
+    "qqp": {"keys": ("question1", "question2"), "num_labels": 2, "metric": "f1"}, # accuracy/f1
+    "rte": {"keys": ("sentence1", "sentence2"), "num_labels": 2, "metric": "accuracy"},
+    "sst2": {"keys": ("sentence", None), "num_labels": 2, "metric": "accuracy"},
+    "stsb": {"keys": ("sentence1", "sentence2"), "num_labels": 1, "metric": "pearson"}, # pearson/spearmanr
+    "wnli": {"keys": ("sentence1", "sentence2"), "num_labels": 2, "metric": "accuracy"},
+}
 
-# ==========================================================
-# Adapter builder (MODIFIED: Added AdaLoRA, BitFit)
-# ==========================================================
-def build_adapter(adapter_type, r, alpha, model=None, total_step=None, lora_dropout=0.0):
+# 태스크별 기본 하이퍼파라미터 (train_vit.py 스타일)
+GLUE_TASK_CONFIG = {
+    "cola": dict(epochs=20, batch=32, lr=2e-4),
+    "mnli": dict(epochs=3, batch=32, lr=2e-4),
+    "mrpc": dict(epochs=20, batch=32, lr=2e-4),
+    "qnli": dict(epochs=3, batch=32, lr=2e-4),
+    "qqp": dict(epochs=3, batch=32, lr=2e-4),
+    "rte": dict(epochs=20, batch=32, lr=2e-4),
+    "sst2": dict(epochs=10, batch=32, lr=2e-4),
+    "stsb": dict(epochs=20, batch=32, lr=2e-4),
+    "wnli": dict(epochs=20, batch=32, lr=2e-4),
+}
+
+def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0, target_modules=None):
     at = adapter_type.lower()
+    if target_modules is None:
+        # DeBERTa-v3 등 일반적인 모델 기준
+        target_modules = ["query_proj", "key_proj", "value_proj", "dense"]
 
-    # 1. LoRA 계열 (LoRA, DoRA, PiSSA)
     if at in ["lora", "dora", "pissa"]:
         kwargs = dict(
             r=r,
             lora_alpha=alpha,
-            target_modules=["query_proj", "key_proj", "value_proj", "dense"],
+            target_modules=target_modules,
             task_type="SEQ_CLS",
             lora_dropout=lora_dropout,
         )
@@ -63,250 +81,189 @@ def build_adapter(adapter_type, r, alpha, model=None, total_step=None, lora_drop
             kwargs["use_dora"] = True
         return LoraConfig(**kwargs)
 
-    # 2. AdaLoRA
     if at == "adalora":
         return AdaLoraConfig(
             init_r=r,
             target_r=r // 2,
             lora_alpha=alpha,
-            target_modules=["query_proj", "key_proj", "value_proj", "dense"],
-            task_type="SEQ_CLS",
+            target_modules=target_modules,
             total_step=total_step if total_step else 1000,
+            task_type="SEQ_CLS",
             lora_dropout=lora_dropout,
         )
 
-    # 3. JELLY
-    if at in ["jelly", "lava", "lava_init"]:  # Keep lava for backward compatibility
+    if at in ["jelly", "lava"]: # 호환성을 위해 lava 유지
         return JellyConfig(
             r=r,
             alpha=alpha,
-            target_modules=["query_proj", "key_proj", "value_proj", "dense"],
+            target_modules=target_modules,
             task_type="SEQ_CLS",
+            lora_dropout=lora_dropout
         )
 
-    # 4. BitFit
     if at == "bitfit":
         return "bitfit"
 
     raise ValueError(f"Unknown adapter type: {adapter_type}")
 
 
-# ==========================================================
-# MAIN
-# ==========================================================
 def main(args):
     task = args.task
-    adapter_type = args.adapter
+    adapter_type = args.adapter.lower()
+    
+    # --- CUDA 확인 로그 ---
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("=" * 60)
+    print(f"[DEVICE INFO] Using Device: {device.upper()}")
+    if torch.cuda.is_available():
+        print(f"[DEVICE INFO] GPU Name: {torch.cuda.get_device_name(0)}")
+        print(f"[DEVICE INFO] Available GPUs: {torch.cuda.device_count()}")
+    else:
+        print("[WARNING] CUDA is not available. Training will be slow.")
+    print("=" * 60)
+    # --------------------
+
+    if task not in GLUE_META:
+        raise ValueError(f"Unknown task: {task}")
     
     meta = GLUE_META[task]
+    cfg = GLUE_TASK_CONFIG.get(task, {"epochs": 3, "batch": 32, "lr": 2e-4})
+
     num_labels = meta["num_labels"]
-    main_metric = meta["main"]
-    eval_key = meta["eval_key"]
+    metric_name = meta["metric"]
     
-    raw = load_dataset("nyu-mll/glue", task)
+    # 인자 우선순위 적용
+    epochs = args.epochs if args.epochs is not None else cfg["epochs"]
+    batch = args.batch if args.batch else cfg["batch"]
+    lr = args.learning_rate if args.learning_rate else cfg["lr"]
+
+    # 데이터셋 로드
+    raw_dataset = load_dataset("glue", task)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    def preprocess(batch):
-        return tokenizer(
-            batch[meta["s1"]],
-            batch[meta["s2"]] if meta["s2"] else None,
-            truncation=True,
-            padding="max_length",
-            max_length=128,
-        )
+    # 전처리 함수
+    key1, key2 = meta["keys"]
+    def preprocess_function(examples):
+        args_tokenizer = (examples[key1],) if key2 is None else (examples[key1], examples[key2])
+        return tokenizer(*args_tokenizer, truncation=True, max_length=128)
 
-    encoded = raw.map(
-        preprocess,
-        batched=True,
-        keep_in_memory=True,  # 디스크 캐시 생성 방지
-        load_from_cache_file=False  # 기존 캐시 무시
-    )
-    encoded = encoded.rename_column("label", "labels")
-    encoded.set_format(
-        type="torch",
-        columns=["input_ids", "attention_mask", "labels"],
-    )
-
-    # Apply train_data_ratio (use first N% for reproducibility)
-    original_train_size = len(encoded["train"])
+    encoded_dataset = raw_dataset.map(preprocess_function, batched=True)
+    
+    # Data Subset (재현성용)
+    original_train_size = len(encoded_dataset["train"])
     if args.train_data_ratio < 100:
         subset_size = int(original_train_size * args.train_data_ratio / 100)
-        subset_size = max(1, subset_size)  # At least 1 sample
-        encoded["train"] = encoded["train"].select(range(subset_size))
-        print(f"[*] Using {args.train_data_ratio}% of training data: {subset_size}/{original_train_size} samples")
-
-    total_train_samples = len(encoded["train"])
-
-    base = AutoModelForSequenceClassification.from_pretrained(
-        args.model,
-        num_labels=num_labels,
-    )
-
-    # Config 매핑
-    at = adapter_type.lower()
-    config_map = {
-        "pissa": PISSA_TASK_CONFIG,
-        "dora": DORA_TASK_CONFIG,
-        "lora": LORA_TASK_CONFIG,
-        "lava": LAVA_TASK_CONFIG,
-        "adalora": ADALORA_TASK_CONFIG,
-        "bitfit": BITFIT_TASK_CONFIG
-    }
+        subset_size = max(1, subset_size)
+        encoded_dataset["train"] = encoded_dataset["train"].select(range(subset_size))
+        print(f"[*] Using {args.train_data_ratio}% of training data: {subset_size}/{original_train_size}")
     
-    task_configs = config_map.get(at, LORA_TASK_CONFIG)
-    cfg = task_configs.get(task, task_configs.get("default", {"epochs": 3, "lr": 2e-4, "batch": 32}))
+    total_train_samples = len(encoded_dataset["train"])
 
-    epochs = args.epochs if args.epochs is not None else cfg["epochs"]
-    lr = args.learning_rate if args.learning_rate is not None else cfg.get("lr", 5e-4)
-    batch = args.batch if args.batch is not None else cfg.get("batch", 32)
-    alpha = args.alpha if args.alpha is not None else cfg.get("alpha", args.r * 2)
+    # 모델 로드
+    base_model = AutoModelForSequenceClassification.from_pretrained(
+        args.model, 
+        num_labels=num_labels
+    )
+    base_model.to(device)
 
-    if args.alpha is not None:
-        # 사용자가 명시적으로 --alpha를 준 경우
-        final_alpha = args.alpha
-    elif at in ["jelly", "lava", "lava_init"]:
-        # JELLY일 경우 r=8, alpha=4 기준 sqrt scaling 적용
-        # 공식: alpha = 4 * sqrt(r / 8)
-        final_alpha = 4 * math.sqrt(args.r / 8)
-        print(f"[*] JELLY Optimal Alpha calculated: {final_alpha:.2f} (r={args.r})")
-    else:
-        # 일반 LoRA 계열은 기존 방식(cfg 또는 r*2) 유지
-        final_alpha = cfg.get("alpha", args.r)
-
-    # AdaLoRA용 total_step 계산
-    total_step = (total_train_samples // batch) * epochs
+    # AdaLoRA용 total_step
+    total_step = (len(encoded_dataset["train"]) // batch) * epochs
+    
+    # Target Modules
+    target_modules = [m.strip() for m in args.target_modules.split(",")]
 
     # Adapter 적용
-    peft_cfg = build_adapter(adapter_type, r=args.r, alpha=final_alpha, total_step=total_step, lora_dropout=args.lora_dropout)
-    
-    
-    
-        
-    if at == "pissa":
-        cache_dir = ".precomputed"
-        os.makedirs(cache_dir, exist_ok=True)
-        
-        # 모델명과 Rank를 조합해 고유 파일명 생성
-        model_name_safe = args.model.replace("/", "_")
-        cache_path = os.path.join(cache_dir, f"{model_name_safe}_r{args.r}.pt")
-
-        if os.path.exists(cache_path):
-            print(f"[*] Found precomputed PiSSA weights at {cache_path}. Loading...")
-            # 캐시가 있으면 SVD 연산을 건너뜀
-            peft_cfg.init_lora_weights = False
-            model = get_peft_model(base, peft_cfg)
-            
-            # 저장된 PiSSA 가중치(A, B 및 수정된 base) 주입
-            checkpoint = torch.load(cache_path, map_location="cpu")
-            model.load_state_dict(checkpoint, strict=False)
-            print(f"[*] PiSSA initialization skipped and weights loaded from cache.")
-        else:
-            print(f"[*] No precomputed weights found. Computing PiSSA SVD (this may take a while)...")
-            peft_cfg.init_lora_weights = "pissa"
-            model = get_peft_model(base, peft_cfg)
-            
-            # 초기화된 가중치 저장
-            to_save = {}
-            for name, param in model.named_parameters():
-                if "lora_" in name or "pissa" in name or any(tm in name for tm in peft_cfg.target_modules):
-                    if param.requires_grad or "base_layer" in name:
-                        to_save[name] = param.cpu().detach()
-            
-            torch.save(to_save, cache_path)
-            print(f"[*] PiSSA SVD computation finished and saved to {cache_path}")
-
-    elif adapter_type.lower() == "bitfit":
-        # BitFit 전용 로직
-        model = base
+    if adapter_type == "bitfit":
+        model = base_model
         for name, param in model.named_parameters():
             if "bias" in name or "classifier" in name or "pooler" in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
-        print("[*] BitFit adapter applied.")
+    elif adapter_type == "pissa":
+        # PiSSA Precompute & Cache (train_vit.py 로직과 동일)
+        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step, 
+                                 lora_dropout=args.lora_dropout, target_modules=target_modules)
+        
+        cache_dir = ".precomputed_nlu"
+        os.makedirs(cache_dir, exist_ok=True)
+        model_name_safe = args.model.replace("/", "_")
+        cache_path = os.path.join(cache_dir, f"{model_name_safe}_{task}_r{args.r}.pt")
 
+        if os.path.exists(cache_path):
+            print(f"[*] Found precomputed PiSSA weights at {cache_path}. Loading...")
+            peft_cfg.init_lora_weights = False
+            model = get_peft_model(base_model, peft_cfg)
+            checkpoint = torch.load(cache_path, map_location="cpu")
+            model.load_state_dict(checkpoint, strict=False)
+            print(f"[*] PiSSA initialization loaded from cache.")
+        else:
+            print(f"[*] No precomputed weights. Computing PiSSA SVD...")
+            peft_cfg.init_lora_weights = "pissa"
+            model = get_peft_model(base_model, peft_cfg)
+            
+            to_save = {}
+            for name, param in model.named_parameters():
+                if "lora_" in name or any(tm in name for tm in peft_cfg.target_modules):
+                    if param.requires_grad or "base_layer" in name:
+                        to_save[name] = param.cpu().detach()
+            # base_layer 저장
+            for name, module in model.named_modules():
+                if hasattr(module, 'base_layer') and hasattr(module.base_layer, 'weight'):
+                    to_save[f"{name}.base_layer.weight"] = module.base_layer.weight.cpu().detach()
+            
+            torch.save(to_save, cache_path)
+            print(f"[*] PiSSA SVD saved to {cache_path}")
     else:
-        # LAVA, LoRA, DoRA 등 일반적인 어댑터 생성
-        model = get_peft_model(base, peft_cfg)
-        print(f"[*] {adapter_type.upper()} adapter applied.") 
+        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step, 
+                                 lora_dropout=args.lora_dropout, target_modules=target_modules)
+        model = get_peft_model(base_model, peft_cfg)
+
+    # 파라미터 수 계산
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
     
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    all_params = sum(p.numel() for p in model.parameters())
-    frozen_params = all_params - trainable_params
-    trainable_percentage = 100 * trainable_params / all_params
+    print("=" * 60)
+    print(f"[CONFIG] Task: {task} | Adapter: {adapter_type}")
+    print(f"[CONFIG] Model: {args.model}")
+    print(f"[CONFIG] Epochs: {epochs} | Batch: {batch} | LR: {lr}")
+    print(f"[CONFIG] Rank: {args.r} | Alpha: {args.alpha}")
+    if adapter_type in ["jelly", "lava"]:
+        print(f"[CONFIG] JELLY Mode: {args.jelly_mode} | Switch Epoch: {args.switch_epoch}")
+    print(f"[MODEL] Trainable: {trainable:,} / {total:,} ({100*trainable/total:.4f}%)")
+    print("=" * 60)
 
-    # Count adapter modules and calculate params per adapter
-    num_adapter_modules = 0
-    adapter_only_params = 0
-    for name, module in model.named_modules():
-        # PEFT adapter layers (LoRA, LAVA, etc.)
-        if hasattr(module, 'lora_A') or hasattr(module, 'W_mu'):
-            num_adapter_modules += 1
-            # Count params in this adapter module
-            for p in module.parameters():
-                if p.requires_grad:
-                    adapter_only_params += p.numel()
-
-    params_per_adapter = adapter_only_params / num_adapter_modules if num_adapter_modules > 0 else 0
-
-    print(f"trainable params: {trainable_params:,} || all params: {all_params:,} || trainable%: {trainable_percentage:.4f}")
-    print(f"adapter modules: {num_adapter_modules} || params per adapter: {params_per_adapter:,.0f}")
-    
+    # Metric 함수
     metric = load_metric("glue", task)
-    
-
     def compute_metrics(eval_pred):
         preds, labels = eval_pred
-        if num_labels == 1:
+        if num_labels > 1:
+            preds = np.argmax(preds, axis=1)
+        elif num_labels == 1:
             preds = preds.squeeze()
-        else:
-            preds = preds.argmax(-1)
         
-        out = metric.compute(predictions=preds, references=labels)
-        out["main"] = out[main_metric]
-        return out
-    
-    
-    run_name = (
-        f"{adapter_type}_{task}_"
-        f"r{args.r}_a{final_alpha:.1f}_"
-        f"mode{args.jelly_mode}_"
-        f"s{args.seed}"
-    )
-    
-    # Wandb 초기화 (조건부)
+        result = metric.compute(predictions=preds, references=labels)
+        if len(result) > 1:
+            result["combined_score"] = np.mean(list(result.values()))
+        return result
+
+    # Wandb 설정
+    run_name = f"{adapter_type}_{task}_r{args.r}_s{args.seed}"
     if not args.no_wandb:
         wandb.init(
-        project=args.wandb_project,
-        name=run_name,
-        config={
-        **vars(args),
-        "trainer_hash": get_git_hash("."),             # 메인 레포 버전
-        "peft_hash": get_git_hash("./peft_jelly")      # 서브모듈(JELLY) 버전
-    }
-)
-        # Parameter metrics
-        wandb.run.summary["trainable_params"] = trainable_params
-        wandb.run.summary["all_params"] = all_params
-        wandb.run.summary["frozen_params"] = frozen_params
-        wandb.run.summary["trainable_percentage"] = trainable_percentage
-        wandb.run.summary["num_adapter_modules"] = num_adapter_modules
-        wandb.run.summary["adapter_only_params"] = adapter_only_params
-        wandb.run.summary["params_per_adapter"] = params_per_adapter
-        # Data metrics
+            project=args.wandb_project,
+            name=run_name,
+            config={
+                **vars(args),
+                "trainer_hash": get_git_hash("."),
+            }
+        )
+        wandb.run.summary["trainable_params"] = trainable
         wandb.run.summary["total_train_samples"] = total_train_samples
-        wandb.run.summary["original_train_size"] = original_train_size
-        wandb.run.summary["train_data_ratio"] = args.train_data_ratio
-    else:
-        # wandb를 비활성화하는 경우 offline 모드로 설정
-        os.environ["WANDB_MODE"] = "offline"
 
-    best_callback = BestMetricCallback(main_metric)
-
-    # 임시 디렉토리 사용 (폴더 생성 방지)
     tmp_dir = tempfile.mkdtemp()
-
-    args_out = TrainingArguments(
+    
+    training_args = TrainingArguments(
         output_dir=tmp_dir,
         evaluation_strategy="epoch",
         save_strategy="no",
@@ -321,117 +278,114 @@ def main(args):
         report_to="wandb" if not args.no_wandb else "none",
         seed=args.seed,
         logging_steps=10,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False}
+        disable_tqdm=False,
     )
 
-    # Use JellyTrainer for JELLY adapter with mode switching
-    use_jelly_trainer = at in ["jelly", "lava", "lava_init"]
+    # Callback
+    target_metric_key = "combined_score" if task in ["mrpc", "stsb"] else metric_name
+    callback = BestMetricCallback(target_metric_key)
+    
+    validation_key = "validation_mismatched" if task == "mnli" else "validation"
 
-    if use_jelly_trainer:
+    # Trainer 선택
+    if adapter_type in ["jelly", "lava"]:
         trainer = JellyNLUTrainer(
             model=model,
-            args=args_out,
-            train_dataset=encoded["train"],
-            eval_dataset=encoded[eval_key],
-            compute_metrics=compute_metrics,
+            args=training_args,
+            train_dataset=encoded_dataset["train"],
+            eval_dataset=encoded_dataset[validation_key],
             tokenizer=tokenizer,
-            callbacks=[best_callback],
+            compute_metrics=compute_metrics,
+            callbacks=[callback],
             jelly_mode=args.jelly_mode,
             switch_epoch=args.switch_epoch,
         )
     else:
         trainer = Trainer(
             model=model,
-            args=args_out,
-            train_dataset=encoded["train"],
-            eval_dataset=encoded[eval_key],
+            args=training_args,
+            train_dataset=encoded_dataset["train"],
+            eval_dataset=encoded_dataset[validation_key],
             tokenizer=tokenizer,
             compute_metrics=compute_metrics,
-            callbacks=[best_callback],
+            callbacks=[callback],
         )
 
     trainer.train()
-    best_main = None
+
+    # Best Metric 추출
+    best_score = None
     for log in trainer.state.log_history:
-        if f"eval_{main_metric}" in log:
-            val = log[f"eval_{main_metric}"]
-            best_main = val if best_main is None else max(best_main, val)
-
-    if best_main is not None and not args.no_wandb:
-        wandb.run.summary[f"best_{main_metric}"] = best_main
-
-    if not args.no_wandb:
+        if f"eval_{target_metric_key}" in log:
+            val = log[f"eval_{target_metric_key}"]
+            best_score = val if best_score is None else max(best_score, val)
+    
+    if best_score is not None and not args.no_wandb:
+        wandb.run.summary["best_score"] = best_score
         wandb.finish()
 
-    # 결과를 JSON 파일로 저장 (민감도 분석용)
+    # 결과 저장
     result_dir = os.path.join(os.path.dirname(__file__), "results")
     os.makedirs(result_dir, exist_ok=True)
-
-    result_file = os.path.join(
-        result_dir,
-        f"result_{task}_s{args.seed}_mode{args.jelly_mode}.json"
-    )
+    result_file = os.path.join(result_dir, f"glue_result_{adapter_type}_{task}_r{args.r}_s{args.seed}.json")
 
     result_data = {
         "task": task,
         "seed": args.seed,
-        "jelly_mode": args.jelly_mode,
-        "switch_epoch": args.switch_epoch,
-        "best_metric": best_main if best_main is not None else 0.0,
-        "metric_name": main_metric
+        "adapter": adapter_type,
+        "best_score": best_score if best_score else 0.0,
+        "metric": target_metric_key
     }
+    if adapter_type in ["jelly", "lava"]:
+        result_data["jelly_mode"] = args.jelly_mode
+        result_data["switch_epoch"] = args.switch_epoch
 
     with open(result_file, "w") as f:
         json.dump(result_data, f, indent=2)
 
-    print(f"\n[RESULT] Task: {task}, Best {main_metric}: {best_main:.4f}" if best_main else f"\n[RESULT] Task: {task}, No valid metric")
+    print("=" * 60)
+    print(f"[RESULT] Task: {task} | Adapter: {adapter_type}")
+    print(f"[RESULT] Best Score ({target_metric_key}): {best_score:.4f}")
+    print(f"[RESULT] Saved to: {result_file}")
+    print("=" * 60)
 
-    # 임시 디렉토리 정리
-    import shutil
     if os.path.exists(tmp_dir):
         shutil.rmtree(tmp_dir)
 
-    return best_main
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    
     # Task & Model
-    parser.add_argument("--task", type=str, required=True)
+    parser.add_argument("--task", type=str, required=True, choices=list(GLUE_META.keys()))
     parser.add_argument("--adapter", type=str, required=True)
     parser.add_argument("--model", type=str, default="microsoft/deberta-v3-base")
 
-    # General Training Parameters
+    # Hyperparameters
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--learning_rate", type=float, default=5e-4)
-    parser.add_argument("--batch", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=None, help="Override epochs from config")
+    parser.add_argument("--learning_rate", type=float, default=None)
+    parser.add_argument("--batch", type=int, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--warmup_ratio", type=float, default=0.1)
-    parser.add_argument("--lr_scheduler", type=str, default="linear",
-                        choices=["linear", "cosine", "constant"])
+    parser.add_argument("--lr_scheduler", type=str, default="linear")
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
-
-    # LoRA Parameters
-    parser.add_argument("--r", type=int, default=16, help="LoRA rank")
-    parser.add_argument("--alpha", type=int, default=None, help="LoRA alpha")
-    parser.add_argument("--lora_dropout", type=float, default=0.1)
-
-    # JELLY Specific Parameters
-    parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"],
-                        help="JELLY mode: parallel, sequential, or seq2par")
-    parser.add_argument("--switch_epoch", type=int, default=3,
-                        help="Epoch to switch from sequential to parallel (only for seq2par mode)")
     
-    # Wandb Parameters
-    parser.add_argument("--wandb_project", type=str, default="Deberta-NaturalLanguageUnderstanding", help="Wandb project name")
-    parser.add_argument("--no_wandb", action="store_true", help="Disable wandb logging")
+    # LoRA Params
+    parser.add_argument("--r", type=int, default=8)
+    parser.add_argument("--alpha", type=int, default=8)
+    parser.add_argument("--lora_dropout", type=float, default=0.1)
+    parser.add_argument("--target_modules", type=str, default="query_proj,key_proj,value_proj,dense")
 
-    # Data Ratio Parameter
-    parser.add_argument("--train_data_ratio", type=int, default=100,
-                        help="Percentage of training data to use (1-100). Uses first N%% for reproducibility.")
+    # JELLY Params
+    parser.add_argument("--jelly_mode", type=str, default="seq2par", choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--switch_epoch", type=int, default=1)
+
+    # Wandb
+    parser.add_argument("--wandb_project", type=str, default="GLUE-Comparison")
+    parser.add_argument("--no_wandb", action="store_true")
+    
+    # Data Ratio
+    parser.add_argument("--train_data_ratio", type=int, default=100)
 
     args = parser.parse_args()
     setup_seed(args.seed)
