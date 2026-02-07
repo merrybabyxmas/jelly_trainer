@@ -17,14 +17,16 @@ git submodule update --init --recursive
 
 # GPU 설정 (병렬 실행)
 
-GPUS="0"           # 사용할 GPU ID (예: "0,1,2,3")
-PER_GPU_TASKS=1     # GPU당 동시 실행 작업 수
+GPUS="0,1"           # 사용할 GPU ID (예: "0,1,2,3")
+PER_GPU_TASKS=2     # GPU당 동시 실행 작업 수
 
 # 실험 설정
-SEEDS="16"
+SEEDS="16,33,57,67,91"
 
-TASKS="eurosat"  # 빠른 테스트용
-METHODS="jelly,lora,pissa"
+TASKS="eurosat,dtd,resisc45,sun397,gtsrb,svhn"  # 빠른 테스트용
+# METHODS="jelly,lora,pissa,bitfit"
+METHODS="dora"
+
 
 # Training Parameters
 LR=1e-4
@@ -50,7 +52,7 @@ SWITCH_EPOCH=3
 TRAIN_DATA_RATIO=100
 
 # Wandb 설정
-WANDB_PROJECT="IMG-all-comparison-qkv"
+WANDB_PROJECT="[JELLY]IC-comparison"
 
 TEST_MODE=false
 

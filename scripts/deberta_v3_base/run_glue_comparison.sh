@@ -2,30 +2,31 @@
 export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 export PYTHONUNBUFFERED=1
+git submodule update --init --recursive
 
 # ============================================================
-# GLUE Comparison: LAVA vs Other Methods (병렬 GPU 실행)
+# Image Classification Comparison: JELLY vs Other Methods (병렬 GPU 실행)
 # ============================================================
-# Methods: BitFit, LoRA, AdaLoRA, DoRA, PiSSA, LAVA
-# Output: outputs/glue_comparison_YYYYMMDD_HHMMSS/
+# Datasets: DTD, EuroSAT, GTSRB, RESISC45, SUN397, SVHN
+# Methods: BitFit, LoRA, AdaLoRA, DoRA, PiSSA, JELLY
+# Output: outputs/img_comparison_YYYYMMDD_HHMMSS/
 #         ├── results.csv
 #         ├── metadata.json
 #         └── logs/
 # ============================================================
 
 # GPU 설정 (병렬 실행)
-GPUS="0"           # 사용할 GPU ID (예: "0,1,2,3")
-PER_GPU_TASKS=4      # GPU당 동시 실행 작업 수 (RAM 메모리 절약을 위해 1로 설정)
+
+GPUS="0,1"           # 사용할 GPU ID (예: "0,1,2,3")
+PER_GPU_TASKS=2     # GPU당 동시 실행 작업 수
 
 # 실험 설정
-SEEDS="1,2,42"
-# SEEDS="1"
+SEEDS="16,33,57,67,91"
 
 TASKS="qnli,qqp,mnli"
-# TASKS="sst2"
+# METHODS="jelly,lora,pissa,bitfit"
+METHODS="jelly"
 
-METHODS="bitfit,lora,adalora,dora,pissa,lava"
-# METHODS="adalora"
 
 # Training Parameters
 LR=1e-4
@@ -38,26 +39,31 @@ WARMUP_RATIO=0.1
 R=8
 ALPHA=8
 LORA_DROPOUT=0.1
+TARGET_MODULES="query,key,value"  # ViT attention layers
 
-LAMBDA_VIB=0.0
-LAMBDA_LATENT_STAB=0.0
+# JELLY Mode Options
+# - "parallel": Start with Parallel mode (same as LoRA)
+# - "sequential": Use Sequential mode throughout
+# - "seq2par": Start Sequential -> Switch to Parallel (at switch_epoch)
+JELLY_MODE="seq2par"
+SWITCH_EPOCH=3
 
 # Data Ratio (1-100, percentage of training data to use)
 TRAIN_DATA_RATIO=100
 
 # Wandb 설정
-WANDB_PROJECT="GLUE-all-comparison"
+WANDB_PROJECT="[JELLY]GLUE-comparison"
 
 TEST_MODE=false
 
-# 스크립트 위치 기반 프로젝트 루트 자동 탐지
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "============================================================"
-echo " GLUE Comparison 실험"
+echo " NLU Comparison 실험"
 echo " GPUs: $GPUS | Per GPU Tasks: $PER_GPU_TASKS"
+echo " JELLY Mode: $JELLY_MODE | Switch Epoch: $SWITCH_EPOCH"
 echo " 최대 동시 실행 작업 수: $(($(echo $GPUS | tr ',' '\n' | wc -l) * PER_GPU_TASKS))"
 echo "============================================================"
 
@@ -74,11 +80,12 @@ if [ "$TEST_MODE" = true ]; then
         --epochs $EPOCHS \
         --weight_decay $WEIGHT_DECAY \
         --warmup_ratio $WARMUP_RATIO \
+        --jelly_mode "$JELLY_MODE" \
+        --switch_epoch $SWITCH_EPOCH \
         --r $R \
         --alpha $ALPHA \
         --lora_dropout $LORA_DROPOUT \
-        --lambda_vib $LAMBDA_VIB \
-        --lambda_latent_stab $LAMBDA_LATENT_STAB \
+        --target_modules "$TARGET_MODULES" \
         --train_data_ratio $TRAIN_DATA_RATIO \
         --wandb_project "$WANDB_PROJECT" \
         --test
@@ -96,10 +103,11 @@ else
         --weight_decay $WEIGHT_DECAY \
         --warmup_ratio $WARMUP_RATIO \
         --r $R \
+        --jelly_mode "$JELLY_MODE" \
+        --switch_epoch $SWITCH_EPOCH \
         --alpha $ALPHA \
         --lora_dropout $LORA_DROPOUT \
-        --lambda_vib $LAMBDA_VIB \
-        --lambda_latent_stab $LAMBDA_LATENT_STAB \
+        --target_modules "$TARGET_MODULES" \
         --train_data_ratio $TRAIN_DATA_RATIO \
         --wandb_project "$WANDB_PROJECT"
 fi

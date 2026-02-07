@@ -23,7 +23,6 @@ from configs.task_config import (
     DORA_TASK_CONFIG,
     LORA_TASK_CONFIG,
     MOCA_TASK_CONFIG,
-    LAVA_TASK_CONFIG,  # Keep for backward compatibility, maps to JELLY
     BITFIT_TASK_CONFIG,
     ADALORA_TASK_CONFIG,
 )

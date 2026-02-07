@@ -2,7 +2,7 @@
 """
 GLUE Comparison Experiment
 ==========================
-LAVA와 다른 메소드(BitFit, LoRA, AdaLoRA, DoRA, PiSSA) 비교 실험
+JELLY와 다른 메소드(BitFit, LoRA, AdaLoRA, DoRA, PiSSA) 비교 실험
 병렬 GPU 실행 지원
 """
 
@@ -21,7 +21,7 @@ from experiments.base_runner import (
     BaseExperimentRunner,
     TrainingConfig,
     LoRAConfig,
-    LAVAConfig,
+    JELLYConfig,
     GLUE_TASKS,
     GLUE_CSV_COLUMNS,
     COMPARISON_METHODS
@@ -33,7 +33,7 @@ class GLUEComparisonRunner(BaseExperimentRunner):
 
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, methods=None, output_dir=None,
-                 training_config=None, lora_config=None, lava_config=None,
+                 training_config=None, lora_config=None, jelly_config=None,
                  use_wandb=True, wandb_project=None):
         super().__init__(
             experiment_name="glue_comparison",
@@ -44,7 +44,7 @@ class GLUEComparisonRunner(BaseExperimentRunner):
             output_dir=output_dir,
             training_config=training_config,
             lora_config=lora_config,
-            lava_config=lava_config,
+            jelly_config=jelly_config,
             use_wandb=use_wandb,
             wandb_project=wandb_project or "GLUE-Comparison",
         )
@@ -73,6 +73,8 @@ class GLUEComparisonRunner(BaseExperimentRunner):
         ] + self.build_training_args(method)
 
         job_name = f"{method}_{task}_s{seed}"
+        result = {"method": method, "task": task, "seed": seed, "score": 0.0, "oom": False}
+        result_file = self.result_dir / f"img_result_{method}_{task}_r{self.lora_config.r}_s{seed}.json"
 
         if self.test_mode:
             dummy = self.get_dummy_result()
@@ -88,11 +90,10 @@ class GLUEComparisonRunner(BaseExperimentRunner):
             return 0.0
 
         # JSON 결과 파일 읽기
-        lv = self.lava_config
-        if method == "lava":
-            result_file = self.result_dir / f"result_{task}_s{seed}_vib{lv.lambda_vib}_lat{lv.lambda_latent_stability}.json"
-        else:
-            result_file = self.result_dir / f"result_{task}_s{seed}_vib1.0_lat1.0.json"
+        if ret_code == -9:
+            result["oom"] = True
+            self.log(f"[OOM] {job_name} - GPU {use_gpu}에서 OOM 발생", "WARN")
+            return result
 
         if result_file.exists():
             with open(result_file, 'r') as f:
@@ -111,12 +112,12 @@ class GLUEComparisonRunner(BaseExperimentRunner):
     def get_params_percentage(self, method: str) -> str:
         """메소드별 파라미터 비율"""
         params_map = {
-            "bitfit": "0.10",
-            "lora": "0.29",
-            "adalora": "0.29",
-            "dora": "0.30",
-            "pissa": "0.29",
-            "lava": "0.29"
+            "bitfit": "0.12",
+            "lora": "0.35",
+            "adalora": "0.35",
+            "dora": "0.36",
+            "pissa": "0.35",
+            "jelly": "0.35"
         }
         return params_map.get(method, "-")
 
@@ -183,7 +184,7 @@ class GLUEComparisonRunner(BaseExperimentRunner):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GLUE Comparison Experiment (병렬 GPU 지원)")
+    parser = argparse.ArgumentParser(description="Image Classification Comparison (병렬 GPU 지원)")
     parser.add_argument("--seeds", type=str, default="1,2,42")
     parser.add_argument("--gpus", type=str, default="0",
                         help="사용할 GPU ID (예: '0,1,2,3')")
@@ -195,12 +196,11 @@ def main():
     parser.add_argument("--output_dir", type=str, default=None)
 
     # wandb 설정
-    parser.add_argument("--use_wandb", action="store_true", default=True)
     parser.add_argument("--no_wandb", action="store_true", help="wandb 비활성화")
-    parser.add_argument("--wandb_project", type=str, default="GLUE-Comparison")
+    parser.add_argument("--wandb_project", type=str, default="IMG-Comparison")
 
     # Training Config
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--weight_decay", type=float, default=0.01)
@@ -210,10 +210,15 @@ def main():
     parser.add_argument("--r", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=16)
     parser.add_argument("--lora_dropout", type=float, default=0.1)
+    parser.add_argument("--target_modules", type=str, default="query,key,value,dense",
+                        help="Comma-separated target modules (e.g., 'query,key,value,dense')")
 
-    # LAVA Lambda Config
-    parser.add_argument("--lambda_vib", type=float, default=1.0)
-    parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
+    # JELLY Config
+    parser.add_argument("--jelly_mode", type=str, default="seq2par",
+                        choices=["parallel", "sequential", "seq2par"],
+                        help="JELLY mode: parallel, sequential, or seq2par")
+    parser.add_argument("--switch_epoch", type=int, default=3,
+                        help="Epoch to switch from sequential to parallel")
 
     # Data Ratio
     parser.add_argument("--train_data_ratio", type=int, default=100,
@@ -241,10 +246,11 @@ def main():
         dropout=args.lora_dropout,
     )
 
-    lava_config = LAVAConfig(
-        lambda_vib=args.lambda_vib,
-        lambda_latent_stability=args.lambda_latent_stab,
+    jelly_config = JELLYConfig(
+        jelly_mode=args.jelly_mode,
+        switch_epoch=args.switch_epoch,
     )
+
 
     runner = GLUEComparisonRunner(
         seeds=seeds,
@@ -256,7 +262,7 @@ def main():
         output_dir=args.output_dir,
         training_config=training_config,
         lora_config=lora_config,
-        lava_config=lava_config,
+        jelly_config=jelly_config,
         use_wandb=use_wandb,
         wandb_project=args.wandb_project,
     )
