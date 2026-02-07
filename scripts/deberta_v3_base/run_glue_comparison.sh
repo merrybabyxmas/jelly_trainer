@@ -7,7 +7,7 @@ git submodule update --init --recursive
 # ============================================================
 # Image Classification Comparison: JELLY vs Other Methods (병렬 GPU 실행)
 # ============================================================
-# Datasets: DTD, EuroSAT, GTSRB, RESISC45, SUN397, SVHN
+# Datasets:qnli  ,qqp  ,mnl
 # Methods: BitFit, LoRA, AdaLoRA, DoRA, PiSSA, JELLY
 # Output: outputs/img_comparison_YYYYMMDD_HHMMSS/
 #         ├── results.csv
@@ -23,9 +23,9 @@ PER_GPU_TASKS=2     # GPU당 동시 실행 작업 수
 # 실험 설정
 SEEDS="16,33,57,67,91"
 
-TASKS="qnli,qqp,mnli"
+TASKS="cola,sst2,mrpc,stsb,qqp,mnli,qnli,rte"
 # METHODS="jelly,lora,pissa,bitfit"
-METHODS="jelly"
+METHODS="pissa,lora,bitfit,jelly"
 
 
 # Training Parameters
@@ -39,7 +39,9 @@ WARMUP_RATIO=0.1
 R=8
 ALPHA=8
 LORA_DROPOUT=0.1
-TARGET_MODULES="query,key,value"  # ViT attention layers
+# TARGET_MODULES="query_proj,key_proj,value_proj,dense"
+TARGET_MODULES="query_proj,key_proj,value_proj"
+
 
 # JELLY Mode Options
 # - "parallel": Start with Parallel mode (same as LoRA)
