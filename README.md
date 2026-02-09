@@ -33,7 +33,7 @@ conda activate jelly
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # Core dependencies
-pip install transformers==4.45.1 datasets evaluate wandb accelerate deepspeed scipy sentencepiece protobuf
+pip install transformers==4.45.1 datasets evaluate wandb accelerate deepspeed scipy sentencepiece protobuf scikit-learn
 
 ```
 
