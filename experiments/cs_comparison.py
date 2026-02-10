@@ -2,7 +2,7 @@
 """
 Commonsense Reasoning Comparison Experiment
 ============================================
-Llama-2-7B에서 LAVA와 다른 메소드(BitFit, LoRA, AdaLoRA, DoRA, PiSSA) 비교 실험
+Llama-2-7B에서 JELLY와 다른 메소드(BitFit, LoRA, AdaLoRA, DoRA, PiSSA) 비교 실험
 병렬 GPU 실행 지원
 """
 
@@ -21,7 +21,7 @@ from experiments.base_runner import (
     BaseExperimentRunner,
     TrainingConfig,
     LoRAConfig,
-    LAVAConfig,
+    JELLYConfig,
     COMMONSENSE_TASKS,
     COMMONSENSE_CSV_COLUMNS,
     COMPARISON_METHODS
@@ -33,8 +33,8 @@ class CommonsenseComparisonRunner(BaseExperimentRunner):
 
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, methods=None, output_dir=None,
-                 training_config=None, lora_config=None, lava_config=None,
-                 use_wandb=True, wandb_project=None, model="meta-llama/Llama-2-7b-hf"):
+                 training_config=None, lora_config=None, jelly_config=None,
+                 use_wandb=True, wandb_project=None, wandb_entity=None, model="meta-llama/Llama-2-7b-hf"):
         super().__init__(
             experiment_name="commonsense_comparison",
             seeds=seeds,
@@ -44,9 +44,10 @@ class CommonsenseComparisonRunner(BaseExperimentRunner):
             output_dir=output_dir,
             training_config=training_config,
             lora_config=lora_config,
-            lava_config=lava_config,
+            jelly_config=jelly_config,
             use_wandb=use_wandb,
             wandb_project=wandb_project or "Llama2-CommonsenseReasoning",
+            wandb_entity=wandb_entity,
         )
         self._tasks = tasks if tasks else COMMONSENSE_TASKS
         self._methods = methods if methods else COMPARISON_METHODS
@@ -118,7 +119,7 @@ class CommonsenseComparisonRunner(BaseExperimentRunner):
             "adalora": "0.33",
             "dora": "0.34",
             "pissa": "0.33",
-            "lava": "0.33"
+            "jelly": "0.33"
         }
         return params_map.get(method, "-")
 
@@ -199,13 +200,14 @@ def main():
     parser.add_argument("--tasks", type=str, default=None,
                         help="실행할 태스크 (예: 'piqa,siqa')")
     parser.add_argument("--methods", type=str, default=None,
-                        help="실행할 메소드 (예: 'lora,lava')")
+                        help="실행할 메소드 (예: 'lora,jelly')")
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-hf")
 
     # wandb 설정
     parser.add_argument("--no_wandb", action="store_true", help="wandb 비활성화")
     parser.add_argument("--wandb_project", type=str, default="Llama2-CommonsenseReasoning")
+    parser.add_argument("--wandb_entity", type=str, default=None, help="wandb entity (team/user)")
 
     # Training Config
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -221,6 +223,11 @@ def main():
     parser.add_argument("--lora_dropout", type=float, default=0.1)
     parser.add_argument("--lambda_vib", type=float, default=1.0)
     parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
+
+    # JELLY Config
+    parser.add_argument("--jelly_mode", type=str, default="seq2par",
+                        choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--switch_epoch", type=float, default=3.0)
 
     args = parser.parse_args()
 
@@ -243,9 +250,9 @@ def main():
         dropout=args.lora_dropout,
     )
 
-    lava_config = LAVAConfig(
-        lambda_vib=args.lambda_vib,
-        lambda_latent_stability=args.lambda_latent_stab,
+    jelly_config = JELLYConfig(
+        jelly_mode=args.jelly_mode,
+        switch_epoch=args.switch_epoch,
     )
 
     runner = CommonsenseComparisonRunner(
@@ -258,9 +265,10 @@ def main():
         output_dir=args.output_dir,
         training_config=training_config,
         lora_config=lora_config,
-        lava_config=lava_config,
+        jelly_config=jelly_config,
         use_wandb=use_wandb,
         wandb_project=args.wandb_project,
+        wandb_entity=args.wandb_entity,
         model=args.model,
     )
 

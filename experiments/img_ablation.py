@@ -2,7 +2,7 @@
 """
 Image Classification Ablation Experiment
 ========================================
-ViT-B/16에서 LAVA 하이퍼파라미터 민감도 분석
+ViT-B/16에서 JELLY 하이퍼파라미터 민감도 분석
 병렬 GPU 실행 지원
 """
 
@@ -21,7 +21,6 @@ from experiments.base_runner import (
     BaseExperimentRunner,
     TrainingConfig,
     LoRAConfig,
-    LAVAConfig,
     IMG_TASKS,
     IMG_ABLATION_CSV_COLUMNS,
     ABLATION_GRID
@@ -29,11 +28,11 @@ from experiments.base_runner import (
 
 
 class ImageAblationRunner(BaseExperimentRunner):
-    """Image Classification 태스크에서 LAVA ablation 실험 (병렬 GPU 실행 지원)"""
+    """Image Classification 태스크에서 JELLY ablation 실험 (병렬 GPU 실행 지원)"""
 
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, output_dir=None,
-                 training_config=None, lora_config=None, lava_config=None,
+                 training_config=None, lora_config=None, jelly_config=None,
                  use_wandb=True, wandb_project=None):
         super().__init__(
             experiment_name="img_ablation",
@@ -44,7 +43,7 @@ class ImageAblationRunner(BaseExperimentRunner):
             output_dir=output_dir,
             training_config=training_config,
             lora_config=lora_config,
-            lava_config=lava_config,
+            jelly_config=jelly_config,
             use_wandb=use_wandb,
             wandb_project=wandb_project or "IMG-Ablation",
         )
@@ -67,7 +66,7 @@ class ImageAblationRunner(BaseExperimentRunner):
 
         cmd = [
             "python", "train_vit.py",
-            "--adapter", "lava",
+            "--adapter", "jelly",
             "--task", task,
             "--seed", str(seed),
             "--learning_rate", str(tc.learning_rate),
@@ -85,7 +84,7 @@ class ImageAblationRunner(BaseExperimentRunner):
         if not self.use_wandb:
             cmd.append("--no_wandb")
 
-        job_name = f"lava_{task}_s{seed}_vib{vib}_lat{latent_stab}"
+        job_name = f"jelly_{task}_s{seed}_vib{vib}_lat{latent_stab}"
 
         if self.test_mode:
             dummy = self.get_dummy_result()
@@ -227,7 +226,7 @@ def main():
     parser.add_argument("--r", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=16)
 
-    # LAVA Lambda Config (기본값 - ablation에서는 그리드로 override됨)
+    # JELLY Lambda Config (기본값 - ablation에서는 그리드로 override됨)
     parser.add_argument("--lambda_vib", type=float, default=1.0)
     parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
 

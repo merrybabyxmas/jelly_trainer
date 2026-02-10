@@ -4,7 +4,7 @@ export NCCL_IB_DISABLE=1
 export PYTHONUNBUFFERED=1
 
 # ============================================================
-# Commonsense Reasoning Ablation: LAVA Hyperparameter Sensitivity
+# Commonsense Reasoning Ablation: JELLY Hyperparameter Sensitivity
 # ============================================================
 # Ablation Params:
 #  - VIB: defined in ABLATION_GRID
@@ -18,7 +18,7 @@ export PYTHONUNBUFFERED=1
 # ============================================================
 
 # GPU 설정
-GPUS="0,1,2,3"
+GPUS="0,1"
 PER_GPU_TASKS=1
 
 # 실험 설정
@@ -40,12 +40,12 @@ WARMUP_RATIO=0.1
 R=8
 ALPHA=8
 
-# LAVA Lambda (baseline 값, ablation 시 grid로 override됨)
+# JELLY Lambda (baseline 값, ablation 시 grid로 override됨)
 LAMBDA_VIB=1.0
 LAMBDA_LATENT_STAB=1.0
 
 # Wandb
-WANDB_PROJECT="Llama-CommonsenseReasoning-Ablation"
+WANDB_PROJECT="[JELLY]Llama-CommonsenseReasoning-Ablation"
 
 TEST_MODE=false
 
@@ -77,8 +77,7 @@ CMD="python -u experiments/cs_ablation.py \
     --alpha $ALPHA \
     --lambda_vib $LAMBDA_VIB \
     --lambda_latent_stab $LAMBDA_LATENT_STAB \
-    --wandb_project $WANDB_PROJECT \
-    --git status"
+    --wandb_project $WANDB_PROJECT"
 
 if [ "$TEST_MODE" = true ]; then
     echo "[TEST MODE]"

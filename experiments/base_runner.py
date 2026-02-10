@@ -43,14 +43,14 @@ class LoRAConfig:
     r: int = 16
     alpha: int = 16
     dropout: float = 0.1
-    target_modules: str = "query,key,value,dense"  # 쉼표로 구분된 문자열
+    target_modules: str = "query,key,value"  # 쉼표로 구분된 문자열
 
 
 @dataclass
 class JELLYConfig:
     """JELLY (Joint Efficient Learning with Layer-Yielding) Parameters"""
     jelly_mode: str = "seq2par"  # parallel, sequential, seq2par
-    switch_epoch: int = 3
+    switch_epoch: float = 3.0
 
 
 # 기본 설정값
@@ -110,6 +110,7 @@ class BaseExperimentRunner(ABC):
         jelly_config: JELLYConfig = None,
         use_wandb: bool = True,
         wandb_project: str = None,
+        wandb_entity: str = None,
     ):
         self.experiment_name = experiment_name
         self.seeds = seeds if seeds else [1, 2, 42]
@@ -118,6 +119,7 @@ class BaseExperimentRunner(ABC):
         self.test_mode = test_mode
         self.use_wandb = use_wandb
         self.wandb_project = wandb_project
+        self.wandb_entity = wandb_entity
 
         # GPU Pool 초기화
         self.gpu_pool = GPUPool(gpus, per_gpu_tasks)
@@ -254,6 +256,8 @@ class BaseExperimentRunner(ABC):
         # Wandb 설정 전달
         if self.use_wandb:
             args.extend(["--wandb_project", self.wandb_project])
+            if self.wandb_entity:
+                args.extend(["--wandb_entity", self.wandb_entity])
         else:
             args.append("--no_wandb")
 

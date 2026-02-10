@@ -33,7 +33,7 @@ for task in $TASKS; do
     gpu_id=${GPU_ARR[$((i % ${#GPU_ARR[@]}))]}
 
     EXTRA_ARGS="--alpha $ALPHA --r $R --batch 1 --grad_accum 8"
-    if [[ "$ADAPTER" == "lava" ]]; then
+    if [[ "$ADAPTER" == "jelly" ]]; then
         EXTRA_ARGS="$EXTRA_ARGS --lambda_vib $LAMBDA_VIB --lambda_stab $LAMBDA_STAB --lambda_latent_stability $LAMBDA_LATENT"
     fi
 
@@ -59,5 +59,3 @@ wait
 echo "============================================================"
 echo " All experiments completed!"
 echo "============================================================"
-
-chmod +x scripts/llama2_7B_base/run_cs_parallel.sh

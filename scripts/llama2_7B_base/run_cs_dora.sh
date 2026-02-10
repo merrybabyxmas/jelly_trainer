@@ -10,7 +10,7 @@ SEEDS="42"
 TASKS="arc_easy"
 MODEL="meta-llama/Llama-2-7b-hf"
 
-# LAVA Parameters
+# DoRA Parameters
 R=8
 ALPHA=8
 LAMBDA_LATENT=1.0
@@ -29,6 +29,3 @@ bash "$SCRIPT_DIR/run_cs_parallel.sh" \
     $LAMBDA_LATENT \
     $ALPHA \
     $R
-EOF
-
-chmod +x scripts/llama2_7B_base/run_cs_dora.sh

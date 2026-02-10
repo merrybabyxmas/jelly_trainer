@@ -484,6 +484,7 @@ def main(args):
     
     wandb.init(
         project=args.wandb_project,
+        entity=args.wandb_entity,
         name=run_name,
         config=vars(args)
     )
@@ -617,11 +618,17 @@ if __name__ == "__main__":
     parser.add_argument("--jelly_mode", type=str, default="seq2par",
                         choices=["parallel", "sequential", "seq2par"],
                         help="JELLY mode: parallel, sequential, or seq2par")
-    parser.add_argument("--switch_epoch", type=int, default=3,
+    parser.add_argument("--switch_epoch", type=float, default=3.0,
                         help="Epoch to switch from sequential to parallel (only for seq2par mode)")
     
+    # Target modules & data ratio
+    parser.add_argument("--target_modules", type=str, default="query,key,value,dense")
+    parser.add_argument("--train_data_ratio", type=int, default=100,
+                        help="Percentage of training data to use (1-100)")
+
     # WandB
     parser.add_argument("--wandb_project", type=str, default="Llama2-CommonsenseReasoning")
+    parser.add_argument("--wandb_entity", type=str, default=None)
 
     args = parser.parse_args()
     setup_seed(args.seed)

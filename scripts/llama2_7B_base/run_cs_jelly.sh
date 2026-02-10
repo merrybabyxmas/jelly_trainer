@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_lava_cs.sh - LAVA Commonsense Reasoning 실험
+# run_jelly_cs.sh - JELLY Commonsense Reasoning 실험
 
 export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
@@ -10,7 +10,7 @@ SEEDS="42"
 TASKS="arc_easy"
 MODEL="meta-llama/Llama-2-7b-hf"
 
-# LAVA Parameters
+# JELLY Parameters
 R=8
 ALPHA=8
 LAMBDA_VIB=1.0
@@ -20,7 +20,7 @@ LAMBDA_LATENT=1.0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 bash "$SCRIPT_DIR/run_cs_parallel.sh" \
-    lava \
+    jelly \
     "$GPUS" \
     $PER_GPU \
     "$TASKS" \
@@ -30,6 +30,3 @@ bash "$SCRIPT_DIR/run_cs_parallel.sh" \
     $LAMBDA_LATENT \
     $ALPHA \
     $R
-EOF
-
-chmod +x scripts/llama2_7B_base/run_cs_lava.sh

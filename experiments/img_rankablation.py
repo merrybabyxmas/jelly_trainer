@@ -2,7 +2,7 @@
 """
 Image Classification Rank Ablation Experiment
 ==============================================
-ViT-B/16에서 다양한 rank에 대한 lora, lava, lava_fullweight 비교
+ViT-B/16에서 다양한 rank에 대한 lora, jelly, jelly_fullweight 비교
 병렬 GPU 실행 지원
 """
 
@@ -21,7 +21,6 @@ from experiments.base_runner import (
     BaseExperimentRunner,
     TrainingConfig,
     LoRAConfig,
-    LAVAConfig,
     IMG_TASKS,
 )
 
@@ -38,7 +37,8 @@ class ImageRankAblationRunner(BaseExperimentRunner):
 
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, methods=None, ranks=None, output_dir=None,
-                 training_config=None, lora_config=None, lava_config=None,
+                 training_config=None, lora_config=None,
+                 lambda_vib=1.0, lambda_latent_stab=1.0,
                  use_wandb=True, wandb_project=None):
         super().__init__(
             experiment_name="img_rankablation",
@@ -49,13 +49,14 @@ class ImageRankAblationRunner(BaseExperimentRunner):
             output_dir=output_dir,
             training_config=training_config,
             lora_config=lora_config,
-            lava_config=lava_config,
             use_wandb=use_wandb,
             wandb_project=wandb_project or "IMG-RankAblation",
         )
         self._tasks = tasks if tasks else IMG_TASKS
-        self._methods = methods if methods else ["lora", "lava", "lava_fullweight"]
+        self._methods = methods if methods else ["lora", "jelly", "jelly_fullweight"]
         self._ranks = ranks if ranks else [4, 8, 12, 16]
+        self.lambda_vib = lambda_vib
+        self.lambda_latent_stab = lambda_latent_stab
 
     @property
     def csv_columns(self):
@@ -70,7 +71,6 @@ class ImageRankAblationRunner(BaseExperimentRunner):
         """단일 실험 실행 (GPU ID 지정 가능)"""
         tc = self.training_config
         lc = self.lora_config
-        lavc = self.lava_config
 
         cmd = [
             "python", "train_vit.py",
@@ -88,11 +88,11 @@ class ImageRankAblationRunner(BaseExperimentRunner):
             "--wandb_project", self.wandb_project,
         ]
 
-        # LAVA 계열은 lambda 값 추가
-        if method in ["lava", "lava_fullweight"]:
+        # JELLY 계열은 lambda 값 추가
+        if method in ["jelly", "jelly_fullweight"]:
             cmd.extend([
-                "--lambda_vib", str(lavc.lambda_vib),
-                "--lambda_latent_stability", str(lavc.lambda_latent_stability),
+                "--lambda_vib", str(self.lambda_vib),
+                "--lambda_latent_stability", str(self.lambda_latent_stab),
             ])
 
         if not self.use_wandb:
@@ -113,8 +113,8 @@ class ImageRankAblationRunner(BaseExperimentRunner):
             return 0.0
 
         # 결과 파일 찾기
-        if method in ["lava", "lava_fullweight"]:
-            result_file = self.result_dir / f"img_result_{method}_{task}_s{seed}_vib{lavc.lambda_vib}_lat{lavc.lambda_latent_stability}.json"
+        if method in ["jelly", "jelly_fullweight"]:
+            result_file = self.result_dir / f"img_result_{method}_{task}_s{seed}_vib{self.lambda_vib}_lat{self.lambda_latent_stab}.json"
         else:
             result_file = self.result_dir / f"img_result_{method}_{task}_r{rank}_s{seed}.json"
 
@@ -219,7 +219,7 @@ def main():
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--tasks", type=str, default=None,
                         help="태스크 목록 (쉼표 구분)")
-    parser.add_argument("--methods", type=str, default="lora,lava,lava_fullweight",
+    parser.add_argument("--methods", type=str, default="lora,jelly,jelly_fullweight",
                         help="메소드 목록 (쉼표 구분)")
     parser.add_argument("--ranks", type=str, default="4,8,12,16",
                         help="Rank 값 목록 (쉼표 구분)")
@@ -240,7 +240,7 @@ def main():
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100)")
 
-    # LAVA Lambda Config
+    # JELLY Lambda Config
     parser.add_argument("--lambda_vib", type=float, default=1.0)
     parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
 
@@ -262,10 +262,6 @@ def main():
     )
 
     lora_config = LoRAConfig(r=ranks[0], alpha=ranks[0])  # 기본값, 실제론 rank별로 달라짐
-    lava_config = LAVAConfig(
-        lambda_vib=args.lambda_vib,
-        lambda_latent_stability=args.lambda_latent_stab
-    )
 
     runner = ImageRankAblationRunner(
         seeds=seeds,
@@ -278,7 +274,8 @@ def main():
         output_dir=args.output_dir,
         training_config=training_config,
         lora_config=lora_config,
-        lava_config=lava_config,
+        lambda_vib=args.lambda_vib,
+        lambda_latent_stab=args.lambda_latent_stab,
         use_wandb=use_wandb,
         wandb_project=args.wandb_project,
     )

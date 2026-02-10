@@ -2,7 +2,7 @@
 """
 Commonsense Reasoning Ablation Experiment
 ==========================================
-Llama-2-7B에서 LAVA 하이퍼파라미터 민감도 분석
+Llama-2-7B에서 JELLY 하이퍼파라미터 민감도 분석
 (Image Ablation Runner 구조와 통일)
 """
 
@@ -26,7 +26,7 @@ from experiments.base_runner import (
 
 
 class CommonsenseAblationRunner(BaseExperimentRunner):
-    """Commonsense Reasoning LAVA Ablation (병렬 GPU 지원)"""
+    """Commonsense Reasoning JELLY Ablation (병렬 GPU 지원)"""
 
     def __init__(self, seeds=None, gpus="0", per_gpu_tasks=1, test_mode=False,
                  tasks=None, output_dir=None,
@@ -62,7 +62,7 @@ class CommonsenseAblationRunner(BaseExperimentRunner):
 
         cmd = [
             "python", "train_CS.py",
-            "--adapter", "lava",
+            "--adapter", "jelly",
             "--task", task,
             "--seed", str(seed),
             "--model", self._model,
@@ -81,7 +81,7 @@ class CommonsenseAblationRunner(BaseExperimentRunner):
         if not self.use_wandb:
             cmd.append("--no_wandb")
 
-        job_name = f"lava_{task}_s{seed}_vib{vib}_lat{latent_stab}"
+        job_name = f"jelly_{task}_s{seed}_vib{vib}_lat{latent_stab}"
 
         if self.test_mode:
             dummy = self.get_dummy_result()
