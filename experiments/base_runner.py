@@ -34,6 +34,7 @@ class TrainingConfig:
     warmup_ratio: float = 0.1
     lr_scheduler: str = "linear"
     max_grad_norm: float = 1.0
+    grad_accum: int = 1
     train_data_ratio: int = 100  # 1-100, percentage of training data to use
 
 
@@ -246,6 +247,7 @@ class BaseExperimentRunner(ABC):
             "--warmup_ratio", str(tc.warmup_ratio),
             "--lr_scheduler", tc.lr_scheduler,
             "--max_grad_norm", str(tc.max_grad_norm),
+            "--grad_accum", str(tc.grad_accum),
             "--r", str(lc.r),
             "--alpha", str(lc.alpha),
             "--lora_dropout", str(lc.dropout),

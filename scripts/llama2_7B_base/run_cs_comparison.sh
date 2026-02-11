@@ -23,8 +23,8 @@ PER_GPU_TASKS=1       # GPU당 동시 실행 작업 수
 SEEDS="42"
 TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
 #TASKS="arc_easy,arc_challenge,openbookqa"  # 작은 데이터셋만
-# METHODS="bitfit,lora,adalora,dora,pissa,jelly"
-METHODS="jelly,lora,bitfit,dora,pissa"  # 테스트용
+METHODS="jelly,bitfit,lora,dora,pissa"
+#METHODS="dora,pissa"  # 테스트용
 
 # Model
 MODEL="meta-llama/Llama-2-7b-hf"
@@ -41,6 +41,7 @@ GRAD_ACCUM=1
 R=8
 ALPHA=8
 LORA_DROPOUT=0.1
+TARGET_MODULES="q_proj,k_proj,v_proj"
 
 # JELLY Mode Options
 # - "parallel": Start with Parallel mode (same as LoRA)
@@ -97,6 +98,7 @@ for SWITCH_EPOCH in $SWITCH_EPOCHS; do
             --r $R \
             --alpha $ALPHA \
             --lora_dropout $LORA_DROPOUT \
+            --target_modules "$TARGET_MODULES" \
             --wandb_project "${WANDB_PROJECT}-sw${SWITCH_EPOCH}" \
             --wandb_entity "$WANDB_ENTITY" \
             --test
@@ -120,6 +122,7 @@ for SWITCH_EPOCH in $SWITCH_EPOCHS; do
             --switch_epoch $SWITCH_EPOCH \
             --alpha $ALPHA \
             --lora_dropout $LORA_DROPOUT \
+            --target_modules "$TARGET_MODULES" \
             --wandb_project "${WANDB_PROJECT}-sw${SWITCH_EPOCH}" \
             --wandb_entity "$WANDB_ENTITY"
     fi

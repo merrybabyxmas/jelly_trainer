@@ -144,15 +144,10 @@ def get_worker_init_fn(seed):
 # ==========================================================
 # Adapter builder
 # ==========================================================
-def build_adapter(adapter_type, r, alpha, model_name=None,total_step=None):
+def build_adapter(adapter_type, r, alpha, total_step=None, lora_dropout=0.0, target_modules=None):
     at = adapter_type.lower()
-    
-    # Llama-3용 target modules
-    if "llama" in model_name.lower():
-        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
-    # DeBERTa용 target modules
-    else:
-        target_modules = ["query_proj", "key_proj", "value_proj", "dense"]
+    if target_modules is None:
+        target_modules = ["query_proj", "key_proj", "value_proj"]
 
     # 1. LoRA 계열
     if at in ["lora", "dora", "pissa"]:
@@ -161,6 +156,7 @@ def build_adapter(adapter_type, r, alpha, model_name=None,total_step=None):
             lora_alpha=alpha,
             target_modules=target_modules,
             task_type="SEQ_CLS",
+            lora_dropout=lora_dropout,
         )
         if at == "pissa":
             kwargs["init_lora_weights"] = "pissa"
@@ -179,6 +175,7 @@ def build_adapter(adapter_type, r, alpha, model_name=None,total_step=None):
             target_modules=target_modules,
             task_type="SEQ_CLS",
             total_step=total_step,
+            lora_dropout=lora_dropout,
         )
 
     # 3. JELLY
@@ -188,6 +185,7 @@ def build_adapter(adapter_type, r, alpha, model_name=None,total_step=None):
             alpha=alpha,
             target_modules=target_modules,
             task_type="SEQ_CLS",
+            lora_dropout=lora_dropout,
         )
 
     # 4. BitFit
@@ -408,16 +406,12 @@ def main(args):
     lr = args.learning_rate if args.learning_rate is not None else cfg.get("lr", 3e-4)
     batch = args.batch if args.batch is not None else cfg.get("batch", 16)
 
-    if args.alpha is not None:
-        final_alpha = args.alpha
-    elif at in ["jelly", "lava", "lava_init"]:
-        final_alpha = 4 * math.sqrt(args.r / 8)
-        print(f"[*] JELLY Optimal Alpha calculated: {final_alpha:.2f} (r={args.r})")
-    else:
-        final_alpha = cfg.get("alpha", args.r)
+    # Target Modules
+    target_modules = [m.strip() for m in args.target_modules.split(",")]
 
     # Adapter 적용
-    peft_cfg = build_adapter(adapter_type, r=args.r, alpha=final_alpha, model_name=args.model)
+    peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha,
+                             lora_dropout=args.lora_dropout, target_modules=target_modules)
     
     if at == "pissa":
         cache_dir = ".precomputed"
@@ -477,7 +471,7 @@ def main(args):
     
     run_name = (
         f"{adapter_type}_{task}_"
-        f"r{args.r}_a{final_alpha:.1f}_"
+        f"r{args.r}_a{args.alpha}_"
         f"mode{args.jelly_mode}_"
         f"s{args.seed}"
     )
@@ -491,6 +485,12 @@ def main(args):
     wandb.run.summary["trainable_params"] = trainable_params
     wandb.run.summary["all_params"] = all_params
     wandb.run.summary["trainable_percentage"] = trainable_percentage
+    wandb.run.summary["train_samples"] = len(encoded["train"])
+    wandb.run.summary["eval_samples"] = len(encoded[eval_key])
+    wandb.run.summary["total_epochs"] = epochs
+    wandb.run.summary["switch_epoch"] = args.switch_epoch
+    wandb.run.summary["switch_ratio"] = args.switch_epoch / epochs if epochs > 0 else 0.0
+    wandb.run.summary["target_modules"] = args.target_modules
 
     best_callback = BestMetricCallback(main_metric)
 
@@ -566,9 +566,14 @@ def main(args):
         "adapter": adapter_type,
         "seed": args.seed,
         "r": args.r,
-        "alpha": final_alpha,
+        "alpha": args.alpha,
         "jelly_mode": args.jelly_mode,
         "switch_epoch": args.switch_epoch,
+        "total_epochs": epochs,
+        "switch_ratio": args.switch_epoch / epochs if epochs > 0 else 0.0,
+        "train_samples": len(encoded["train"]),
+        "eval_samples": len(encoded[eval_key]),
+        "target_modules": args.target_modules,
         "best_accuracy": best_main if best_main is not None else 0.0,
         "metric_name": main_metric
     }
@@ -611,7 +616,7 @@ if __name__ == "__main__":
 
     # LoRA Parameters
     parser.add_argument("--r", type=int, default=8)
-    parser.add_argument("--alpha", type=int, default=None)
+    parser.add_argument("--alpha", type=int, default=8)
     parser.add_argument("--lora_dropout", type=float, default=0.1)
 
     # JELLY Specific Parameters
@@ -622,7 +627,7 @@ if __name__ == "__main__":
                         help="Epoch to switch from sequential to parallel (only for seq2par mode)")
     
     # Target modules & data ratio
-    parser.add_argument("--target_modules", type=str, default="query,key,value,dense")
+    parser.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj")
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100)")
 

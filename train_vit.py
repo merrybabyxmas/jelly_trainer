@@ -189,7 +189,7 @@ def load_torchvision_dataset(task: str, meta: dict, data_root: str = "./data", s
 def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0, target_modules=None):
     at = adapter_type.lower()
     if target_modules is None:
-        target_modules = ["query", "key", "value", "dense"]
+        target_modules = ["query", "key", "value"]
 
     # NOTE: task_type="SEQ_CLS" ensures classifier head is trainable via modules_to_save
     # This is critical for fair comparison - all adapters should train the classifier

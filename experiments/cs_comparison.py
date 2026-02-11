@@ -221,6 +221,7 @@ def main():
     parser.add_argument("--r", type=int, default=8)
     parser.add_argument("--alpha", type=int, default=8)
     parser.add_argument("--lora_dropout", type=float, default=0.1)
+    parser.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj")
     parser.add_argument("--lambda_vib", type=float, default=1.0)
     parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
 
@@ -242,12 +243,14 @@ def main():
         epochs=args.epochs,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
+        grad_accum=args.grad_accum,
     )
 
     lora_config = LoRAConfig(
         r=args.r,
         alpha=args.alpha,
         dropout=args.lora_dropout,
+        target_modules=args.target_modules,
     )
 
     jelly_config = JELLYConfig(

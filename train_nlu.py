@@ -65,7 +65,7 @@ def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
     at = adapter_type.lower()
     if target_modules is None:
         # DeBERTa-v3 등 일반적인 모델 기준
-        target_modules = ["query_proj", "key_proj", "value_proj", "dense"]
+        target_modules = ["query_proj", "key_proj", "value_proj"]
 
     if at in ["lora", "dora", "pissa"]:
         kwargs = dict(
