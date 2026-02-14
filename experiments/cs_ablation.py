@@ -190,3 +190,88 @@ class CommonsenseAblationRunner(BaseExperimentRunner):
         self.log(" Commonsense Ablation 완료")
         self.log(f" 결과 CSV: {self.csv_path}")
         self.log(f"{'='*60}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Commonsense Reasoning Ablation (병렬 GPU 지원)")
+    parser.add_argument("--seeds", type=str, default="42")
+    parser.add_argument("--gpus", type=str, default="0")
+    parser.add_argument("--per_gpu_tasks", type=int, default=1)
+    parser.add_argument("--test", action="store_true")
+    parser.add_argument("--tasks", type=str, default=None)
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-hf")
+    parser.add_argument("--param", type=str, default="all",
+                        choices=["vib", "latent_stab", "all"])
+
+    # wandb 설정
+    parser.add_argument("--no_wandb", action="store_true")
+    parser.add_argument("--wandb_project", type=str, default="Llama2-Ablation")
+
+    # Training Config
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--warmup_ratio", type=float, default=0.1)
+
+    # LoRA Config
+    parser.add_argument("--r", type=int, default=8)
+    parser.add_argument("--alpha", type=int, default=8)
+    parser.add_argument("--lora_dropout", type=float, default=0.1)
+    parser.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj")
+
+    # JELLY Config
+    parser.add_argument("--jelly_mode", type=str, default="seq2par",
+                        choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--switch_epoch", type=float, default=3.0)
+
+    # Lambda params (baseline values, overridden by ablation grid)
+    parser.add_argument("--lambda_vib", type=float, default=1.0)
+    parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
+
+    args = parser.parse_args()
+
+    seeds = [int(s) for s in args.seeds.split(",")]
+    tasks = args.tasks.split(",") if args.tasks else None
+    use_wandb = not args.no_wandb
+
+    training_config = TrainingConfig(
+        learning_rate=args.lr,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+    )
+
+    lora_config = LoRAConfig(
+        r=args.r,
+        alpha=args.alpha,
+        dropout=args.lora_dropout,
+        target_modules=args.target_modules,
+    )
+
+    runner = CommonsenseAblationRunner(
+        seeds=seeds,
+        gpus=args.gpus,
+        per_gpu_tasks=args.per_gpu_tasks,
+        test_mode=args.test,
+        tasks=tasks,
+        output_dir=args.output_dir,
+        training_config=training_config,
+        lora_config=lora_config,
+        use_wandb=use_wandb,
+        wandb_project=args.wandb_project,
+        model=args.model,
+    )
+
+    if args.param == "all":
+        runner.run_all_experiments()
+    else:
+        runner.save_metadata({"ablation_params": [args.param], "model": args.model})
+        runner.init_csv()
+        runner.run_ablation_for_param(args.param)
+
+
+if __name__ == "__main__":
+    main()

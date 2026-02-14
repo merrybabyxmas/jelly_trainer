@@ -11,6 +11,7 @@ from .utils import (
     get_git_info,
     log_git_info_to_wandb,
     verify_param_equality,
+    log_adapter_params_to_wandb,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "get_git_info",
     "log_git_info_to_wandb",
     "verify_param_equality",
+    "log_adapter_params_to_wandb",
 ]

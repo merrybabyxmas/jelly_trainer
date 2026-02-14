@@ -32,7 +32,7 @@ import wandb
 from peft import get_peft_model, LoraConfig, AdaLoraConfig
 from peft.tuners.jelly.config import JellyConfig
 
-from trainer import JellyViTTrainer, setup_seed, register_jelly, BestMetricCallback, verify_param_equality
+from trainer import JellyViTTrainer, setup_seed, register_jelly, BestMetricCallback, verify_param_equality, log_adapter_params_to_wandb
 
 # JELLY 등록
 register_jelly()
@@ -332,6 +332,7 @@ def main(args):
         verify_param_equality(base, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
 
     # Adapter 적용
+    peft_cfg = None
     if adapter_type == "bitfit":
         model = base
         for name, param in model.named_parameters():
@@ -445,6 +446,9 @@ def main(args):
         wandb.run.summary["num_adapter_modules"] = num_adapter_modules
         wandb.run.summary["adapter_only_params"] = adapter_only_params
         wandb.run.summary["params_per_adapter"] = params_per_adapter
+
+    # Parameter validation & wandb logging (all methods)
+    log_adapter_params_to_wandb(model, adapter_type, peft_config=peft_cfg, target_modules=target_modules)
 
     tmp_dir = tempfile.mkdtemp()
 
@@ -585,6 +589,9 @@ if __name__ == "__main__":
     # Data Ratio Parameter
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100). Uses first N%% for reproducibility.")
+
+    # Gradient Accumulation
+    parser.add_argument("--grad_accum", type=int, default=1)
 
     args = parser.parse_args()
     setup_seed(args.seed)

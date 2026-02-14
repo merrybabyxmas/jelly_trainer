@@ -168,6 +168,141 @@ def verify_param_equality(base_model, target_modules, r, alpha, lora_dropout=0.0
     return total_trainable, len(matched_layers)
 
 
+def _classify_module_type(param_name, target_modules=None):
+    """Classify a parameter into a module type based on its name path."""
+    # Classifier/score head (highest priority)
+    if any(kw in param_name for kw in ("classifier", "score")):
+        return "classifier_head"
+
+    # Pooler
+    if "pooler" in param_name:
+        return "pooler"
+
+    # Match against user-specified target modules (case-sensitive, longest first)
+    if target_modules:
+        sorted_tms = sorted(target_modules, key=len, reverse=True)
+        for tm in sorted_tms:
+            if tm in param_name:
+                return tm
+
+    # Fallback: common module keywords (longest first to avoid partial matches)
+    common = [
+        "query_proj", "key_proj", "value_proj",
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+        "query", "key", "value", "dense",
+    ]
+    for cm in common:
+        if cm in param_name:
+            return cm
+
+    return "other"
+
+
+def log_adapter_params_to_wandb(model, adapter_type, peft_config=None, target_modules=None):
+    """
+    Log detailed per-module trainable parameter counts, alpha, and rank to wandb.
+
+    Works for ALL adapter types: LoRA, DoRA, PiSSA, AdaLoRA, JELLY, BitFit.
+    Call this AFTER wandb.init() and after model (with adapter) is created.
+
+    Args:
+        model: The model (with adapter applied)
+        adapter_type: str, e.g. "lora", "jelly", "bitfit"
+        peft_config: The PEFT config object (LoraConfig, JellyConfig, etc.) or None
+        target_modules: List of target module names (e.g. ["query_proj", "key_proj"])
+    """
+    at = adapter_type.lower()
+
+    # ===== 1. Per-module trainable param counts =====
+    module_params = {}
+    total_trainable = 0
+    total_all = 0
+
+    for name, param in model.named_parameters():
+        total_all += param.numel()
+        if param.requires_grad:
+            total_trainable += param.numel()
+            module_type = _classify_module_type(name, target_modules)
+            module_params[module_type] = module_params.get(module_type, 0) + param.numel()
+
+    # ===== 2. Extract alpha/rank from config =====
+    config_alpha = None
+    config_rank = None
+
+    if peft_config is not None and peft_config != "bitfit":
+        if hasattr(peft_config, 'lora_alpha'):
+            config_alpha = peft_config.lora_alpha
+        elif hasattr(peft_config, 'alpha'):
+            config_alpha = peft_config.alpha
+
+        if hasattr(peft_config, 'r'):
+            config_rank = peft_config.r
+        elif hasattr(peft_config, 'init_r'):
+            config_rank = peft_config.init_r
+
+    # ===== 3. Verify alpha/rank from actual model layers =====
+    model_alphas = set()
+    model_ranks = set()
+
+    for _, module in model.named_modules():
+        # LoRA / DoRA / PiSSA / AdaLoRA layers
+        if hasattr(module, 'lora_alpha') and isinstance(getattr(module, 'lora_alpha', None), dict):
+            for _, alpha_val in module.lora_alpha.items():
+                model_alphas.add(alpha_val)
+            if hasattr(module, 'r') and isinstance(getattr(module, 'r', None), dict):
+                for _, r_val in module.r.items():
+                    model_ranks.add(r_val)
+        # JELLY adapter layers (JellyAdapter has .scale and .rank)
+        if hasattr(module, 'scale') and hasattr(module, 'rank') and isinstance(getattr(module, 'rank', None), int):
+            model_ranks.add(module.rank)
+            model_alphas.add(round(module.scale * module.rank))
+
+    # ===== 4. Console output =====
+    print(f"\n{'='*70}")
+    print(f"[PARAM VALIDATION] Adapter: {at.upper()}")
+    print(f"[PARAM VALIDATION] Total: {total_trainable:,} trainable / {total_all:,} ({100*total_trainable/total_all:.4f}%)")
+    print(f"[PARAM VALIDATION] Per-module breakdown:")
+    for module_type, count in sorted(module_params.items()):
+        pct = 100 * count / total_trainable if total_trainable > 0 else 0
+        print(f"[PARAM VALIDATION]   {module_type:<30} {count:>12,} ({pct:>5.1f}%)")
+    if config_alpha is not None:
+        print(f"[PARAM VALIDATION] Config Alpha: {config_alpha} | Config Rank: {config_rank}")
+    if model_alphas:
+        print(f"[PARAM VALIDATION] Model Alpha (verified): {sorted(model_alphas)}")
+    if model_ranks:
+        print(f"[PARAM VALIDATION] Model Rank  (verified): {sorted(model_ranks)}")
+    print(f"{'='*70}\n")
+
+    # ===== 5. Log to wandb =====
+    if wandb.run is None:
+        return
+
+    summary = {
+        "validation/adapter_type": at,
+        "validation/total_params": total_all,
+        "validation/trainable_params": total_trainable,
+        "validation/trainable_pct": round(100 * total_trainable / total_all, 4) if total_all > 0 else 0,
+    }
+
+    for module_type, count in sorted(module_params.items()):
+        summary[f"validation/params/{module_type}"] = count
+
+    if config_alpha is not None:
+        summary["validation/config_alpha"] = config_alpha
+    if config_rank is not None:
+        summary["validation/config_rank"] = config_rank
+
+    if model_alphas:
+        alpha_list = sorted(model_alphas)
+        summary["validation/model_alpha"] = alpha_list[0] if len(alpha_list) == 1 else str(alpha_list)
+    if model_ranks:
+        rank_list = sorted(model_ranks)
+        summary["validation/model_rank"] = rank_list[0] if len(rank_list) == 1 else str(rank_list)
+
+    wandb.run.summary.update(summary)
+
+
 def get_git_hash(path="."):
     """Get git commit hash for a given directory"""
     try:

@@ -28,6 +28,7 @@ from trainer import (
     register_jelly,
     BestMetricCallback,
     verify_param_equality,
+    log_adapter_params_to_wandb,
 )
 from trainer.utils import get_git_hash
 
@@ -178,6 +179,7 @@ def main(args):
         verify_param_equality(base_model, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
 
     # Adapter 적용
+    peft_cfg = None
     if adapter_type == "bitfit":
         model = base_model
         for name, param in model.named_parameters():
@@ -266,6 +268,9 @@ def main(args):
         )
         wandb.run.summary["trainable_params"] = trainable
         wandb.run.summary["total_train_samples"] = total_train_samples
+
+    # Parameter validation & wandb logging (all methods)
+    log_adapter_params_to_wandb(model, adapter_type, peft_config=peft_cfg, target_modules=target_modules)
 
     tmp_dir = tempfile.mkdtemp()
     
@@ -392,6 +397,9 @@ if __name__ == "__main__":
     
     # Data Ratio
     parser.add_argument("--train_data_ratio", type=int, default=100)
+
+    # Gradient Accumulation
+    parser.add_argument("--grad_accum", type=int, default=1)
 
     args = parser.parse_args()
     setup_seed(args.seed)

@@ -17,11 +17,12 @@ git submodule update --init --recursive
 
 # GPU 설정 (병렬 실행)
 
-GPUS="0,1"           # 사용할 GPU ID (예: "0,1,2,3")
+GPUS="0"           # 사용할 GPU ID (예: "0,1,2,3")
 PER_GPU_TASKS=2     # GPU당 동시 실행 작업 수
 
 # 실험 설정
-SEEDS="16,33,57,67,91"
+# SEEDS="16,33,57,67,91"
+SEEDS="16,33"
 
 TASKS="cola,sst2,mrpc,stsb,qqp,mnli,qnli,rte"
 # METHODS="jelly,lora,pissa,bitfit"
@@ -54,7 +55,7 @@ SWITCH_EPOCH=3
 TRAIN_DATA_RATIO=100
 
 # Wandb 설정
-WANDB_PROJECT="[JELLY]GLUE-comparison"
+WANDB_PROJECT="[JELLY]GLUE-comparison-fixed"
 
 TEST_MODE=false
 

@@ -319,11 +319,11 @@ class BaseExperimentRunner(ABC):
                             if any(kw in line_stripped.lower() for kw in
                                    ['epoch', 'eval', 'accuracy', 'loss', 'result',
                                     'error', 'oom', 'cuda', 'memory', '%|',
-                                    'param check', 'trainable params']):
+                                    'param check', 'param validation', 'trainable params']):
                                 with self.progress_lock:
                                     print(f"  [{gpu_id}|{job_name}] {line_stripped}")
-                                # PARAM CHECK는 experiment.log에도 기록
-                                if 'param check' in line_stripped.lower():
+                                # PARAM CHECK/VALIDATION은 experiment.log에도 기록
+                                if 'param check' in line_stripped.lower() or 'param validation' in line_stripped.lower():
                                     self.log(f"[{job_name}] {line_stripped}")
                 stream.close()
 
@@ -558,7 +558,7 @@ COMMONSENSE_CSV_COLUMNS = [
 ]
 
 COMMONSENSE_ABLATION_CSV_COLUMNS = [
-    "seed", "vib", "logit stab / latent stab",
+    "seed", "vib", "latent_stab",
     "piqa", "siqa", "arc_easy", "arc_challenge",
     "openbookqa", "hellaswag", "winogrande", "avg"
 ]

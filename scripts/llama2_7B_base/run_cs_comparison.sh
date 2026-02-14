@@ -16,8 +16,8 @@ git submodule update --init --recursive
 # ============================================================
 
 # GPU 설정 (병렬 실행)
-GPUS="0,1"        # 사용할 GPU ID
-PER_GPU_TASKS=1       # GPU당 동시 실행 작업 수
+GPUS="0"        # 사용할 GPU ID
+PER_GPU_TASKS=4       # GPU당 동시 실행 작업 수
 
 # 실험 설정
 SEEDS="42"
@@ -50,10 +50,10 @@ TARGET_MODULES="q_proj,k_proj,v_proj"
 JELLY_MODE="seq2par"
 
 # Switch Epoch 실험 목록 (소수점 지원)
-SWITCH_EPOCHS="0.1 0.2 0.3 1 2 3"
+SWITCH_EPOCHS="3 2 1"
 
 # Wandb 설정
-WANDB_PROJECT="[JELLY]Llama2-CommonsenseReasoning-comparison"
+WANDB_PROJECT="[JELLY]Llama2-Cs-DW"
 WANDB_ENTITY="DongwooYein"
 
 TEST_MODE=false

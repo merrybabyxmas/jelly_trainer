@@ -31,6 +31,7 @@ from trainer import (
     BestMetricCallback,
     print_trainable_parameters,
     verify_param_equality,
+    log_adapter_params_to_wandb,
 )
 
 # JELLY 등록
@@ -496,6 +497,9 @@ def main(args):
     wandb.run.summary["switch_epoch"] = args.switch_epoch
     wandb.run.summary["switch_ratio"] = args.switch_epoch / epochs if epochs > 0 else 0.0
     wandb.run.summary["target_modules"] = args.target_modules
+
+    # Parameter validation & wandb logging (all methods)
+    log_adapter_params_to_wandb(model, adapter_type, peft_config=peft_cfg, target_modules=target_modules)
 
     best_callback = BestMetricCallback(main_metric)
 
