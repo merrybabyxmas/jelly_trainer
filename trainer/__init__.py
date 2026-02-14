@@ -10,6 +10,7 @@ from .utils import (
     get_git_hash,
     get_git_info,
     log_git_info_to_wandb,
+    verify_param_equality,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "get_git_hash",
     "get_git_info",
     "log_git_info_to_wandb",
+    "verify_param_equality",
 ]

@@ -30,6 +30,7 @@ from trainer import (
     register_jelly,
     BestMetricCallback,
     print_trainable_parameters,
+    verify_param_equality,
 )
 
 # JELLY 등록
@@ -408,6 +409,10 @@ def main(args):
 
     # Target Modules
     target_modules = [m.strip() for m in args.target_modules.split(",")]
+
+    # Verify LoRA == Jelly trainable param count (before adapter application)
+    if at in ["lora", "pissa", "jelly", "lava", "lava_init"]:
+        verify_param_equality(base, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
 
     # Adapter 적용
     peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha,

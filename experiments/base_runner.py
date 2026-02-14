@@ -318,9 +318,13 @@ class BaseExperimentRunner(ABC):
                             # 진행률, 에포크, 평가 결과 등 중요한 정보 출력
                             if any(kw in line_stripped.lower() for kw in
                                    ['epoch', 'eval', 'accuracy', 'loss', 'result',
-                                    'error', 'oom', 'cuda', 'memory', '%|']):
+                                    'error', 'oom', 'cuda', 'memory', '%|',
+                                    'param check', 'trainable params']):
                                 with self.progress_lock:
                                     print(f"  [{gpu_id}|{job_name}] {line_stripped}")
+                                # PARAM CHECK는 experiment.log에도 기록
+                                if 'param check' in line_stripped.lower():
+                                    self.log(f"[{job_name}] {line_stripped}")
                 stream.close()
 
             stdout_thread = threading.Thread(target=read_stream,

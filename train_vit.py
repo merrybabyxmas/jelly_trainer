@@ -32,7 +32,7 @@ import wandb
 from peft import get_peft_model, LoraConfig, AdaLoraConfig
 from peft.tuners.jelly.config import JellyConfig
 
-from trainer import JellyViTTrainer, setup_seed, register_jelly, BestMetricCallback
+from trainer import JellyViTTrainer, setup_seed, register_jelly, BestMetricCallback, verify_param_equality
 
 # JELLY 등록
 register_jelly()
@@ -220,7 +220,7 @@ def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
         )
 
     if at == "jelly":
-        return JellyConfig(r=r, alpha=alpha, target_modules=target_modules, lora_dropout=lora_dropout)
+        return JellyConfig(r=r, alpha=alpha, target_modules=target_modules, task_type="SEQ_CLS", lora_dropout=lora_dropout)
 
     if at == "bitfit":
         return "bitfit"
@@ -327,6 +327,10 @@ def main(args):
     # Target modules 파싱
     target_modules = [m.strip() for m in args.target_modules.split(",")]
 
+    # Verify LoRA == Jelly trainable param count (before adapter application)
+    if adapter_type in ["lora", "pissa", "jelly"]:
+        verify_param_equality(base, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
+
     # Adapter 적용
     if adapter_type == "bitfit":
         model = base
@@ -406,6 +410,7 @@ def main(args):
     print(f"[MODEL] Trainable: {trainable:,} / {total:,} ({100*trainable/total:.4f}%)")
     print(f"[MODEL] Adapter modules: {num_adapter_modules} | Params per adapter: {params_per_adapter:,.0f}")
     print(f"[DATA] Train: {len(train_ds)} | Val: {len(val_ds)}")
+
     print("=" * 60)
 
     def compute_metrics(eval_pred):

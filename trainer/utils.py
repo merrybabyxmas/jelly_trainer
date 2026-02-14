@@ -120,6 +120,54 @@ def print_trainable_parameters(model):
 
 
 
+def verify_param_equality(base_model, target_modules, r, alpha, lora_dropout=0.0):
+    """
+    Analytically verify that LoRA and Jelly would have the same trainable parameters.
+    Scans base model for matching target layers and computes expected adapter param counts.
+    """
+    import torch.nn as nn
+
+    # 1. Find all target layers
+    matched_layers = []
+    for name, module in base_model.named_modules():
+        if isinstance(module, nn.Linear):
+            if any(t in name for t in target_modules):
+                matched_layers.append((name, module.in_features, module.out_features))
+
+    # 2. Compute adapter params per layer
+    # LoRA:  A = Linear(in, r) + B = Linear(r, out) → in*r + r*out
+    # Jelly: W_A = Linear(adapter_in, r) + W_B = Linear(r, out)
+    #   square (in==out): adapter_in = out = in → same as LoRA
+    #   non-square:       adapter_in = in       → same as LoRA
+    total_adapter_params = 0
+    print(f"[PARAM CHECK] Target modules: {target_modules} | Rank: {r}")
+    print(f"[PARAM CHECK] {'Layer':<60} {'in':>6} {'out':>6} {'A(in×r)':>10} {'B(r×out)':>10} {'subtotal':>10}")
+    print(f"[PARAM CHECK] {'-'*104}")
+    for name, in_f, out_f in matched_layers:
+        a_params = in_f * r
+        b_params = r * out_f
+        subtotal = a_params + b_params
+        total_adapter_params += subtotal
+        print(f"[PARAM CHECK] {name:<60} {in_f:>6} {out_f:>6} {a_params:>10,} {b_params:>10,} {subtotal:>10,}")
+
+    # 3. Find classifier/score head params (modules_to_save)
+    classifier_params = 0
+    classifier_names = ["classifier", "score"]
+    for name, module in base_model.named_modules():
+        if any(c in name for c in classifier_names) and hasattr(module, 'weight'):
+            p_count = sum(p.numel() for p in module.parameters())
+            classifier_params += p_count
+            print(f"[PARAM CHECK] {name + ' (head)':<60} {'':<6} {'':<6} {'':>10} {'':>10} {p_count:>10,}")
+
+    total_trainable = total_adapter_params + classifier_params
+    print(f"[PARAM CHECK] {'-'*104}")
+    print(f"[PARAM CHECK] {'Adapter layers:':<60} {len(matched_layers):>6} layers {'':<6} {'':>10} {'':>10} {total_adapter_params:>10,}")
+    print(f"[PARAM CHECK] {'Classifier head:':<60} {'':<6} {'':<6} {'':>10} {'':>10} {classifier_params:>10,}")
+    print(f"[PARAM CHECK] {'TOTAL trainable (LoRA == Jelly):':<60} {'':<6} {'':<6} {'':>10} {'':>10} {total_trainable:>10,}")
+
+    return total_trainable, len(matched_layers)
+
+
 def get_git_hash(path="."):
     """Get git commit hash for a given directory"""
     try:

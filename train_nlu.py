@@ -27,6 +27,7 @@ from trainer import (
     setup_seed,
     register_jelly,
     BestMetricCallback,
+    verify_param_equality,
 )
 from trainer.utils import get_git_hash
 
@@ -172,6 +173,10 @@ def main(args):
     # Target Modules
     target_modules = [m.strip() for m in args.target_modules.split(",")]
 
+    # Verify LoRA == Jelly trainable param count (before adapter application)
+    if adapter_type in ["lora", "pissa", "jelly", "lava"]:
+        verify_param_equality(base_model, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
+
     # Adapter 적용
     if adapter_type == "bitfit":
         model = base_model
@@ -231,6 +236,7 @@ def main(args):
     if adapter_type in ["jelly", "lava"]:
         print(f"[CONFIG] JELLY Mode: {args.jelly_mode} | Switch Epoch: {args.switch_epoch}")
     print(f"[MODEL] Trainable: {trainable:,} / {total:,} ({100*trainable/total:.4f}%)")
+
     print("=" * 60)
 
     # Metric 함수
