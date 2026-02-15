@@ -286,6 +286,7 @@ def main(args):
         learning_rate=lr,
         per_device_train_batch_size=batch,
         per_device_eval_batch_size=batch,
+        gradient_accumulation_steps=args.grad_accum,
         num_train_epochs=epochs,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,

@@ -21,9 +21,9 @@ PER_GPU_TASKS=2       # GPU당 동시 실행 작업 수
 
 # 실험 설정
 SEEDS="42"
-# TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
-TASKS="arc_challenge"  # 작은 데이터셋만
-METHODS="jelly,lora,dora,pissa"
+TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
+# TASKS="arc_challenge"  # 작은 데이터셋만
+METHODS="jelly,lora,dora,pissa,bitfit"
 #METHODS="dora,pissa"  # 테스트용
 
 # Model
@@ -50,7 +50,7 @@ TARGET_MODULES="q_proj,k_proj,v_proj"
 JELLY_MODE="seq2par"
 
 # Switch Epoch 실험 목록 (소수점 지원)
-SWITCH_EPOCHS="3 2 1 0.1"
+SWITCH_EPOCHS="1 0.5"
 
 # Wandb 설정
 WANDB_PROJECT="[JELLY]Llama2-dongwoo"
