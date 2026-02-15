@@ -63,10 +63,10 @@ GLUE_TASK_CONFIG = {
     "wnli": dict(epochs=20, batch=32, lr=2e-4),
 }
 
-def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0, target_modules=None):
+def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
+                  target_modules=None, init_weights="jelly"):
     at = adapter_type.lower()
     if target_modules is None:
-        # DeBERTa-v3 등 일반적인 모델 기준
         target_modules = ["query_proj", "key_proj", "value_proj"]
 
     if at in ["lora", "dora", "pissa"]:
@@ -94,13 +94,14 @@ def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
             lora_dropout=lora_dropout,
         )
 
-    if at in ["jelly", "lava"]: # 호환성을 위해 lava 유지
+    if at in ["jelly", "lava"]:
         return JellyConfig(
             r=r,
             alpha=alpha,
             target_modules=target_modules,
             task_type="SEQ_CLS",
-            lora_dropout=lora_dropout
+            lora_dropout=lora_dropout,
+            init_weights=init_weights,
         )
 
     if at == "bitfit":
@@ -222,8 +223,12 @@ def main(args):
             torch.save(to_save, cache_path)
             print(f"[*] PiSSA SVD saved to {cache_path}")
     else:
-        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step, 
-                                 lora_dropout=args.lora_dropout, target_modules=target_modules)
+        jelly_init = "lora" if (adapter_type.lower() in ["jelly", "lava"] and args.switch_epoch <= 0) else "jelly"
+        if jelly_init == "lora":
+            print(f"[JELLY] switch_epoch={args.switch_epoch} <= 0 → LoRA-equivalent mode (init_weights='lora')")
+        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step,
+                                 lora_dropout=args.lora_dropout, target_modules=target_modules,
+                                 init_weights=jelly_init)
         model = get_peft_model(base_model, peft_cfg)
 
     # 파라미터 수 계산

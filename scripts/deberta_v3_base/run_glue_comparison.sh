@@ -22,11 +22,13 @@ PER_GPU_TASKS=2     # GPU당 동시 실행 작업 수
 
 # 실험 설정
 # SEEDS="16,33,57,67,91"
-SEEDS="16,33"
+SEEDS="16"
 
-TASKS="cola,sst2,mrpc,stsb,qqp,mnli,qnli,rte"
+# TASKS="cola,sst2,mrpc,stsb,qqp,mnli,qnli,rte"
+TASKS="mrpc"
+
 # METHODS="jelly,lora,pissa,bitfit"
-METHODS="pissa,lora,bitfit,jelly"
+METHODS="pissa,lora,bitfit"
 
 
 # Training Parameters

@@ -17,13 +17,13 @@ git submodule update --init --recursive
 
 # GPU 설정 (병렬 실행)
 GPUS="0"        # 사용할 GPU ID
-PER_GPU_TASKS=4       # GPU당 동시 실행 작업 수
+PER_GPU_TASKS=2       # GPU당 동시 실행 작업 수
 
 # 실험 설정
 SEEDS="42"
-TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
-#TASKS="arc_easy,arc_challenge,openbookqa"  # 작은 데이터셋만
-METHODS="jelly,bitfit,lora,dora,pissa"
+# TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
+TASKS="arc_challenge"  # 작은 데이터셋만
+METHODS="jelly,lora,dora,pissa"
 #METHODS="dora,pissa"  # 테스트용
 
 # Model
@@ -50,10 +50,10 @@ TARGET_MODULES="q_proj,k_proj,v_proj"
 JELLY_MODE="seq2par"
 
 # Switch Epoch 실험 목록 (소수점 지원)
-SWITCH_EPOCHS="3 2 1"
+SWITCH_EPOCHS="3 2 1 0.1"
 
 # Wandb 설정
-WANDB_PROJECT="[JELLY]Llama2-Cs-DW"
+WANDB_PROJECT="[JELLY]Llama2-dongwoo"
 WANDB_ENTITY="DongwooYein"
 
 TEST_MODE=false
@@ -99,7 +99,7 @@ for SWITCH_EPOCH in $SWITCH_EPOCHS; do
             --alpha $ALPHA \
             --lora_dropout $LORA_DROPOUT \
             --target_modules "$TARGET_MODULES" \
-            --wandb_project "${WANDB_PROJECT}-sw${SWITCH_EPOCH}" \
+            --wandb_project "${WANDB_PROJECT}" \
             --wandb_entity "$WANDB_ENTITY" \
             --test
     else
@@ -123,7 +123,7 @@ for SWITCH_EPOCH in $SWITCH_EPOCHS; do
             --alpha $ALPHA \
             --lora_dropout $LORA_DROPOUT \
             --target_modules "$TARGET_MODULES" \
-            --wandb_project "${WANDB_PROJECT}-sw${SWITCH_EPOCH}" \
+            --wandb_project "${WANDB_PROJECT}" \
             --wandb_entity "$WANDB_ENTITY"
     fi
 

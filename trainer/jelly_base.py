@@ -47,6 +47,13 @@ class JellyBaseTrainer(Trainer):
             for layer in self.jelly_layers:
                 layer.set_mode("sequential")
             print(f">>> [JELLY] Mode: SEQUENTIAL (fixed)")
+        elif self.switch_epoch <= 0:
+            # switch_epoch <= 0: parallel from start, no correction needed
+            # (init_weights="lora" in config makes this identical to LoRA)
+            for layer in self.jelly_layers:
+                layer.set_mode("parallel")
+            self.has_switched = True
+            print(f">>> [JELLY] Mode: PARALLEL (switch_epoch={self.switch_epoch}, LoRA-equivalent)")
         else:  # seq2par (default)
             for layer in self.jelly_layers:
                 layer.set_mode("sequential")

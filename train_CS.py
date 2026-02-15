@@ -146,7 +146,8 @@ def get_worker_init_fn(seed):
 # ==========================================================
 # Adapter builder
 # ==========================================================
-def build_adapter(adapter_type, r, alpha, total_step=None, lora_dropout=0.0, target_modules=None):
+def build_adapter(adapter_type, r, alpha, total_step=None, lora_dropout=0.0,
+                  target_modules=None, init_weights="jelly"):
     at = adapter_type.lower()
     if target_modules is None:
         target_modules = ["query_proj", "key_proj", "value_proj"]
@@ -181,13 +182,14 @@ def build_adapter(adapter_type, r, alpha, total_step=None, lora_dropout=0.0, tar
         )
 
     # 3. JELLY
-    if at in ["jelly", "lava", "lava_init"]:  # Keep lava for backward compatibility
+    if at in ["jelly", "lava", "lava_init"]:
         return JellyConfig(
             r=r,
             alpha=alpha,
             target_modules=target_modules,
             task_type="SEQ_CLS",
             lora_dropout=lora_dropout,
+            init_weights=init_weights,
         )
 
     # 4. BitFit
@@ -415,9 +417,15 @@ def main(args):
     if at in ["lora", "pissa", "jelly", "lava", "lava_init"]:
         verify_param_equality(base, target_modules, r=args.r, alpha=args.alpha, lora_dropout=args.lora_dropout)
 
+    # switch_epoch <= 0 → LoRA-equivalent (same init, pure parallel)
+    jelly_init = "lora" if (at in ["jelly", "lava", "lava_init"] and args.switch_epoch <= 0) else "jelly"
+    if jelly_init == "lora":
+        print(f"[JELLY] switch_epoch={args.switch_epoch} <= 0 → LoRA-equivalent mode (init_weights='lora')")
+
     # Adapter 적용
     peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha,
-                             lora_dropout=args.lora_dropout, target_modules=target_modules)
+                             lora_dropout=args.lora_dropout, target_modules=target_modules,
+                             init_weights=jelly_init)
     
     if at == "pissa":
         cache_dir = ".precomputed"

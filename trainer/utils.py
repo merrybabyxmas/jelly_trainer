@@ -28,24 +28,11 @@ def setup_seed(seed: int):
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True, warn_only=True)
 
-    # Set JellyAdapter global seed
-    try:
-        from peft.tuners.jelly.layer import JellyAdapter
-        JellyAdapter.set_global_seed(seed)
-    except ImportError:
-        pass
 
 
 def reset_jelly_generators(model, seed: int = None):
-    """Reset all JellyAdapter generators in model (can be called at epoch start)"""
-    try:
-        from peft.tuners.jelly.layer import JellyAdapter
-        for module in model.modules():
-            if isinstance(module, JellyAdapter):
-                if hasattr(module, 'reset_generator'):
-                    module.reset_generator(seed)
-    except ImportError:
-        pass
+    """No-op: JellyAdapter no longer exists. Kept for API compatibility."""
+    pass
 
 
 def register_jelly():
@@ -253,10 +240,6 @@ def log_adapter_params_to_wandb(model, adapter_type, peft_config=None, target_mo
             if hasattr(module, 'r') and isinstance(getattr(module, 'r', None), dict):
                 for _, r_val in module.r.items():
                     model_ranks.add(r_val)
-        # JELLY adapter layers (JellyAdapter has .scale and .rank)
-        if hasattr(module, 'scale') and hasattr(module, 'rank') and isinstance(getattr(module, 'rank', None), int):
-            model_ranks.add(module.rank)
-            model_alphas.add(round(module.scale * module.rank))
 
     # ===== 4. Console output =====
     print(f"\n{'='*70}")

@@ -186,7 +186,8 @@ def load_torchvision_dataset(task: str, meta: dict, data_root: str = "./data", s
     return {"train": train_hf, "test": val_hf}
 
 
-def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0, target_modules=None):
+def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
+                  target_modules=None, init_weights="jelly"):
     at = adapter_type.lower()
     if target_modules is None:
         target_modules = ["query", "key", "value"]
@@ -208,19 +209,20 @@ def build_adapter(adapter_type, r=8, alpha=8, total_step=None, lora_dropout=0.0,
         return LoraConfig(**kwargs)
 
     if at == "adalora":
-        # AdaLoRA requires total_step for rank scheduling
         return AdaLoraConfig(
             init_r=r,
-            target_r=r // 2,  # final rank
+            target_r=r // 2,
             lora_alpha=alpha,
             target_modules=target_modules,
             total_step=total_step if total_step else 1000,
-            task_type="SEQ_CLS",  # Ensure classifier is trainable
+            task_type="SEQ_CLS",
             lora_dropout=lora_dropout,
         )
 
     if at == "jelly":
-        return JellyConfig(r=r, alpha=alpha, target_modules=target_modules, task_type="SEQ_CLS", lora_dropout=lora_dropout)
+        return JellyConfig(r=r, alpha=alpha, target_modules=target_modules,
+                           task_type="SEQ_CLS", lora_dropout=lora_dropout,
+                           init_weights=init_weights)
 
     if at == "bitfit":
         return "bitfit"
@@ -381,7 +383,12 @@ def main(args):
             torch.save(to_save, cache_path)
             print(f"[*] PiSSA SVD computation finished and saved to {cache_path}")
     else:
-        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step, lora_dropout=args.lora_dropout, target_modules=target_modules)
+        jelly_init = "lora" if (adapter_type.lower() == "jelly" and args.switch_epoch <= 0) else "jelly"
+        if jelly_init == "lora":
+            print(f"[JELLY] switch_epoch={args.switch_epoch} <= 0 → LoRA-equivalent mode (init_weights='lora')")
+        peft_cfg = build_adapter(adapter_type, r=args.r, alpha=args.alpha, total_step=total_step,
+                                 lora_dropout=args.lora_dropout, target_modules=target_modules,
+                                 init_weights=jelly_init)
         model = get_peft_model(base, peft_cfg)
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
