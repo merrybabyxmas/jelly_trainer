@@ -222,8 +222,8 @@ def main():
     parser.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj")
 
     # JELLY Config
-    parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--jelly_mode", type=str, default="dynamic",
+                        choices=["parallel", "sequential", "seq2par", "dynamic"])
     parser.add_argument("--switch_epoch", type=float, default=3.0)
 
     # Lambda params (baseline values, overridden by ablation grid)

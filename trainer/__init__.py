@@ -1,6 +1,7 @@
 from .jelly_base import JellyBaseTrainer
 from .jelly_nlu import JellyNLUTrainer
 from .jelly_vit import JellyViTTrainer
+from .dynamic_switch import DynamicSwitchCallback
 from .utils import (
     setup_seed,
     register_jelly,
@@ -18,6 +19,7 @@ __all__ = [
     "JellyBaseTrainer",
     "JellyNLUTrainer",
     "JellyViTTrainer",
+    "DynamicSwitchCallback",
     "setup_seed",
     "register_jelly",
     "BestMetricCallback",

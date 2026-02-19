@@ -320,6 +320,12 @@ def main(args):
         subset_size = max(1, subset_size)  # At least 1 sample
         train_ds = train_ds.select(range(subset_size))
         print(f"[*] Using {args.train_data_ratio}% of training data: {subset_size}/{original_train_size} samples")
+    if args.max_train_samples > 0 and len(train_ds) > args.max_train_samples:
+        train_ds = train_ds.select(range(args.max_train_samples))
+        print(f"[*] max_train_samples={args.max_train_samples}: {len(train_ds)}/{original_train_size} samples")
+    sliced_train_size = len(train_ds)
+    if sliced_train_size < original_train_size:
+        print(f"[*] Training data sliced: {original_train_size} → {sliced_train_size}")
 
     total_train_samples = len(train_ds)
 
@@ -445,6 +451,8 @@ def main(args):
         wandb.run.summary["total_train_samples"] = total_train_samples
         wandb.run.summary["original_train_size"] = original_train_size
         wandb.run.summary["train_data_ratio"] = args.train_data_ratio
+        wandb.run.summary["validation/original_train_data_size"] = original_train_size
+        wandb.run.summary["validation/sliced_train_data_size"] = sliced_train_size
         # Parameter metrics
         wandb.run.summary["trainable_params"] = trainable
         wandb.run.summary["all_params"] = total
@@ -597,6 +605,8 @@ if __name__ == "__main__":
     # Data Ratio Parameter
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100). Uses first N%% for reproducibility.")
+    parser.add_argument("--max_train_samples", type=int, default=0,
+                        help="Max number of training samples (0=no limit). Applied after train_data_ratio.")
 
     # Gradient Accumulation
     parser.add_argument("--grad_accum", type=int, default=1)

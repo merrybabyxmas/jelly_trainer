@@ -213,15 +213,17 @@ def main():
                         help="Comma-separated target modules (e.g., 'query,key,value,dense')")
 
     # JELLY Config
-    parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"],
-                        help="JELLY mode: parallel, sequential, or seq2par")
+    parser.add_argument("--jelly_mode", type=str, default="dynamic",
+                        choices=["parallel", "sequential", "seq2par", "dynamic"],
+                        help="JELLY mode: parallel, sequential, seq2par, or dynamic")
     parser.add_argument("--switch_epoch", type=int, default=3,
                         help="Epoch to switch from sequential to parallel")
 
     # Data Ratio
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100)")
+    parser.add_argument("--max_train_samples", type=int, default=0,
+                        help="Max training samples (0=no limit)")
 
     args = parser.parse_args()
 
@@ -237,6 +239,7 @@ def main():
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         train_data_ratio=args.train_data_ratio,
+        max_train_samples=args.max_train_samples,
     )
 
     lora_config = LoRAConfig(

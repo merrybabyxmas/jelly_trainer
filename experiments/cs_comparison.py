@@ -216,6 +216,8 @@ def main():
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--warmup_ratio", type=float, default=0.1)
     parser.add_argument("--grad_accum", type=int, default=1)
+    parser.add_argument("--max_train_samples", type=int, default=0,
+                        help="Max training samples (0=no limit)")
 
     # LoRA Config
     parser.add_argument("--r", type=int, default=8)
@@ -226,8 +228,8 @@ def main():
     parser.add_argument("--lambda_latent_stab", type=float, default=1.0)
 
     # JELLY Config
-    parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"])
+    parser.add_argument("--jelly_mode", type=str, default="dynamic",
+                        choices=["parallel", "sequential", "seq2par", "dynamic"])
     parser.add_argument("--switch_epoch", type=float, default=3.0)
 
     args = parser.parse_args()
@@ -244,6 +246,7 @@ def main():
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         grad_accum=args.grad_accum,
+        max_train_samples=args.max_train_samples,
     )
 
     lora_config = LoRAConfig(

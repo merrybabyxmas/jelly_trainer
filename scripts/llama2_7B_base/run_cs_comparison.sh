@@ -22,9 +22,8 @@ PER_GPU_TASKS=2       # GPU당 동시 실행 작업 수
 # 실험 설정
 SEEDS="42"
 TASKS="piqa,siqa,arc_easy,arc_challenge,openbookqa,hellaswag,winogrande"
-# TASKS="arc_challenge"  # 작은 데이터셋만
-METHODS="jelly,lora,dora,pissa,bitfit"
-#METHODS="dora,pissa"  # 테스트용
+METHODS="jelly"
+# METHODS="bitfit,lora,dora,pissa"  # 테스트용
 
 # Model
 MODEL="meta-llama/Llama-2-7b-hf"
@@ -37,6 +36,12 @@ WEIGHT_DECAY=0.01
 WARMUP_RATIO=0.1
 GRAD_ACCUM=1
 
+# Data Slicing (0=no limit, >0=cap training samples for faster iteration)
+# Dataset sizes: piqa=16k, siqa=38k, arc_easy=2.3k, arc_challenge=1.2k,
+#                openbookqa=5k, hellaswag=40k, winogrande=40k
+# 1000 samples → ~20-30 min per task (batch=4, epochs=5)
+MAX_TRAIN_SAMPLES=1000
+
 # LoRA Parameters
 R=8
 ALPHA=8
@@ -47,10 +52,8 @@ TARGET_MODULES="q_proj,k_proj,v_proj"
 # - "parallel": Start with Parallel mode (same as LoRA)
 # - "sequential": Use Sequential mode throughout
 # - "seq2par": Start Sequential -> Switch to Parallel (at switch_epoch)
-JELLY_MODE="seq2par"
-
-# Switch Epoch 실험 목록 (소수점 지원)
-SWITCH_EPOCHS="1 0.5"
+# - "dynamic": Start Sequential -> Auto-switch via Gradient Coherence
+JELLY_MODE="dynamic"
 
 # Wandb 설정
 WANDB_PROJECT="[JELLY]Llama2-dongwoo"
@@ -67,73 +70,62 @@ echo " Commonsense Reasoning Comparison 실험"
 echo " Model: $MODEL"
 echo " GPUs: $GPUS | Per GPU Tasks: $PER_GPU_TASKS"
 echo " JELLY Mode: $JELLY_MODE"
-echo " Switch Epochs: $SWITCH_EPOCHS"
+echo " Max Train Samples: $MAX_TRAIN_SAMPLES (0=all)"
 echo " Epochs: $EPOCHS"
 echo " 최대 동시 실행 작업 수: $(($(echo $GPUS | tr ',' '\n' | wc -l) * PER_GPU_TASKS))"
 echo "============================================================"
 
-for SWITCH_EPOCH in $SWITCH_EPOCHS; do
-    echo ""
-    echo "============================================================"
-    echo " Switch Epoch: $SWITCH_EPOCH / Epochs: $EPOCHS"
-    echo "============================================================"
-
-    if [ "$TEST_MODE" = true ]; then
-        echo "[테스트 모드]"
-        python -u experiments/cs_comparison.py \
-            --gpus "$GPUS" \
-            --per_gpu_tasks $PER_GPU_TASKS \
-            --seeds "$SEEDS" \
-            --tasks "$TASKS" \
-            --methods "$METHODS" \
-            --model "$MODEL" \
-            --lr $LR \
-            --batch_size $BATCH_SIZE \
-            --epochs $EPOCHS \
-            --weight_decay $WEIGHT_DECAY \
-            --warmup_ratio $WARMUP_RATIO \
-            --grad_accum $GRAD_ACCUM \
-            --jelly_mode "$JELLY_MODE" \
-            --switch_epoch $SWITCH_EPOCH \
-            --r $R \
-            --alpha $ALPHA \
-            --lora_dropout $LORA_DROPOUT \
-            --target_modules "$TARGET_MODULES" \
-            --wandb_project "${WANDB_PROJECT}" \
-            --wandb_entity "$WANDB_ENTITY" \
-            --test
-    else
-        echo "[실험 모드]"
-        python -u experiments/cs_comparison.py \
-            --gpus "$GPUS" \
-            --per_gpu_tasks $PER_GPU_TASKS \
-            --seeds "$SEEDS" \
-            --tasks "$TASKS" \
-            --methods "$METHODS" \
-            --model "$MODEL" \
-            --lr $LR \
-            --batch_size $BATCH_SIZE \
-            --epochs $EPOCHS \
-            --weight_decay $WEIGHT_DECAY \
-            --warmup_ratio $WARMUP_RATIO \
-            --grad_accum $GRAD_ACCUM \
-            --r $R \
-            --jelly_mode "$JELLY_MODE" \
-            --switch_epoch $SWITCH_EPOCH \
-            --alpha $ALPHA \
-            --lora_dropout $LORA_DROPOUT \
-            --target_modules "$TARGET_MODULES" \
-            --wandb_project "${WANDB_PROJECT}" \
-            --wandb_entity "$WANDB_ENTITY"
-    fi
-
-    echo ""
-    echo ">>> Switch Epoch $SWITCH_EPOCH 실험 완료"
-done
+if [ "$TEST_MODE" = true ]; then
+    echo "[테스트 모드]"
+    python -u experiments/cs_comparison.py \
+        --gpus "$GPUS" \
+        --per_gpu_tasks $PER_GPU_TASKS \
+        --seeds "$SEEDS" \
+        --tasks "$TASKS" \
+        --methods "$METHODS" \
+        --model "$MODEL" \
+        --lr $LR \
+        --batch_size $BATCH_SIZE \
+        --epochs $EPOCHS \
+        --weight_decay $WEIGHT_DECAY \
+        --warmup_ratio $WARMUP_RATIO \
+        --grad_accum $GRAD_ACCUM \
+        --max_train_samples $MAX_TRAIN_SAMPLES \
+        --jelly_mode "$JELLY_MODE" \
+        --r $R \
+        --alpha $ALPHA \
+        --lora_dropout $LORA_DROPOUT \
+        --target_modules "$TARGET_MODULES" \
+        --wandb_project "${WANDB_PROJECT}" \
+        --wandb_entity "$WANDB_ENTITY" \
+        --test
+else
+    echo "[실험 모드]"
+    python -u experiments/cs_comparison.py \
+        --gpus "$GPUS" \
+        --per_gpu_tasks $PER_GPU_TASKS \
+        --seeds "$SEEDS" \
+        --tasks "$TASKS" \
+        --methods "$METHODS" \
+        --model "$MODEL" \
+        --lr $LR \
+        --batch_size $BATCH_SIZE \
+        --epochs $EPOCHS \
+        --weight_decay $WEIGHT_DECAY \
+        --warmup_ratio $WARMUP_RATIO \
+        --grad_accum $GRAD_ACCUM \
+        --max_train_samples $MAX_TRAIN_SAMPLES \
+        --r $R \
+        --jelly_mode "$JELLY_MODE" \
+        --alpha $ALPHA \
+        --lora_dropout $LORA_DROPOUT \
+        --target_modules "$TARGET_MODULES" \
+        --wandb_project "${WANDB_PROJECT}" \
+        --wandb_entity "$WANDB_ENTITY"
+fi
 
 echo ""
 echo "============================================================"
-echo " 모든 Switch Epoch 실험 완료!"
-echo " Switch Epochs: $SWITCH_EPOCHS"
+echo " 실험 완료!"
 echo " 결과는 outputs/ 폴더에 저장됩니다."
 echo "============================================================"

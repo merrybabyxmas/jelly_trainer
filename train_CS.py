@@ -26,6 +26,7 @@ from peft.tuners.jelly.config import JellyConfig
 
 from trainer import (
     JellyBaseTrainer,
+    DynamicSwitchCallback,
     setup_seed,
     register_jelly,
     BestMetricCallback,
@@ -45,6 +46,7 @@ COMMONSENSE_META = {
     "piqa": {
         "dataset_name": "ybisk/piqa",
         "dataset_config": None,
+        "dataset_revision": "refs/convert/parquet",
         "num_labels": 2,
         "label_col": "label",
         "question_col": "goal",
@@ -55,6 +57,7 @@ COMMONSENSE_META = {
     "siqa": {
         "dataset_name": "social_i_qa",
         "dataset_config": None,
+        "dataset_revision": "refs/convert/parquet",
         "num_labels": 3,
         "label_col": "label",
         "context_col": "context",
@@ -340,10 +343,14 @@ def main(args):
     dataset_config = meta.get("dataset_config", None)
     
     # 데이터셋 로드
+    dataset_revision = meta.get("dataset_revision", None)
+    load_kwargs = {"trust_remote_code": True}
+    if dataset_revision:
+        load_kwargs["revision"] = dataset_revision
     if dataset_config:
-        raw = load_dataset(dataset_name, dataset_config,trust_remote_code=True)
+        raw = load_dataset(dataset_name, dataset_config, **load_kwargs)
     else:
-        raw = load_dataset(dataset_name,trust_remote_code=True)
+        raw = load_dataset(dataset_name, **load_kwargs)
     # =========================
     # Remove invalid labels (-1)
     # =========================
@@ -380,6 +387,20 @@ def main(args):
         type="torch",
         columns=["input_ids", "attention_mask", "labels"],
     )
+
+    # Data slicing
+    original_train_size = len(encoded["train"])
+    if args.train_data_ratio < 100:
+        subset_size = int(original_train_size * args.train_data_ratio / 100)
+        subset_size = max(1, subset_size)
+        encoded["train"] = encoded["train"].select(range(subset_size))
+        print(f"[*] train_data_ratio={args.train_data_ratio}%: {subset_size}/{original_train_size} samples")
+    if args.max_train_samples > 0 and len(encoded["train"]) > args.max_train_samples:
+        encoded["train"] = encoded["train"].select(range(args.max_train_samples))
+        print(f"[*] max_train_samples={args.max_train_samples}: {len(encoded['train'])}/{original_train_size} samples")
+    sliced_train_size = len(encoded["train"])
+    if sliced_train_size < original_train_size:
+        print(f"[*] Training data sliced: {original_train_size} → {sliced_train_size}")
 
     # 모델 로드
     base = AutoModelForSequenceClassification.from_pretrained(
@@ -468,9 +489,15 @@ def main(args):
         model = get_peft_model(base, peft_cfg)
         print(f"[*] {adapter_type.upper()} adapter applied.")
     
-    # ===== 모든 파라미터를 BF16으로 통일 =====
-    model = model.to(torch.bfloat16)
-    print(f"[*] Model converted to bfloat16")
+    # ===== Frozen 파라미터만 BF16, Trainable 파라미터는 FP32 유지 =====
+    # BF16 순수 학습 시 weight update가 precision 한계로 소실되는 문제 방지
+    # (bf16 mantissa 7bit → weight 대비 1/128 이하 update가 사라짐)
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            param.data = param.data.to(torch.bfloat16)
+        else:
+            param.data = param.data.to(torch.float32)
+    print(f"[*] Frozen params -> bf16, Trainable params -> fp32")
     
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     all_params = sum(p.numel() for p in model.parameters())
@@ -501,6 +528,8 @@ def main(args):
     wandb.run.summary["trainable_percentage"] = trainable_percentage
     wandb.run.summary["train_samples"] = len(encoded["train"])
     wandb.run.summary["eval_samples"] = len(encoded[eval_key])
+    wandb.run.summary["validation/original_train_data_size"] = original_train_size
+    wandb.run.summary["validation/sliced_train_data_size"] = sliced_train_size
     wandb.run.summary["total_epochs"] = epochs
     wandb.run.summary["switch_epoch"] = args.switch_epoch
     wandb.run.summary["switch_ratio"] = args.switch_epoch / epochs if epochs > 0 else 0.0
@@ -536,6 +565,22 @@ def main(args):
     )
 
     if at in ["jelly", "lava", "lava_init"]:
+        # Build callback list
+        jelly_callbacks = [best_callback]
+        if args.jelly_mode == "dynamic":
+            dyn_callback = DynamicSwitchCallback(
+                ema_alpha=args.dyn_ema_alpha,
+                drop_ratio=args.dyn_drop_ratio,
+                warmup_steps=args.dyn_warmup_steps,
+                min_steps=args.dyn_min_steps,
+                log_interval=args.dyn_log_interval,
+            )
+            print(f"[JELLY] Dynamic switch (Gradient Coherence): "
+                  f"ema_α={args.dyn_ema_alpha}, "
+                  f"drop_ratio={args.dyn_drop_ratio}, "
+                  f"warmup={args.dyn_warmup_steps}, "
+                  f"min_steps={args.dyn_min_steps}")
+
         trainer = JellyBaseTrainer(
             model=model,
             args=args_out,
@@ -543,10 +588,14 @@ def main(args):
             eval_dataset=encoded[eval_key],
             compute_metrics=compute_metrics,
             tokenizer=tokenizer,
-            callbacks=[best_callback],
+            callbacks=jelly_callbacks,
             jelly_mode=args.jelly_mode,
             switch_epoch=args.switch_epoch,
         )
+
+        # Attach dynamic callback directly to trainer for easy access
+        if args.jelly_mode == "dynamic":
+            trainer._dyn_callback_cache = dyn_callback
     else:
         trainer = Trainer(
             model=model,
@@ -638,15 +687,29 @@ if __name__ == "__main__":
 
     # JELLY Specific Parameters
     parser.add_argument("--jelly_mode", type=str, default="seq2par",
-                        choices=["parallel", "sequential", "seq2par"],
-                        help="JELLY mode: parallel, sequential, or seq2par")
+                        choices=["parallel", "sequential", "seq2par", "dynamic"],
+                        help="JELLY mode: parallel, sequential, seq2par, or dynamic")
     parser.add_argument("--switch_epoch", type=float, default=3.0,
                         help="Epoch to switch from sequential to parallel (only for seq2par mode)")
+
+    # Dynamic Switch Parameters (only used when jelly_mode=dynamic)
+    parser.add_argument("--dyn_ema_alpha", type=float, default=0.1,
+                        help="EMA smoothing factor for gradient coherence")
+    parser.add_argument("--dyn_drop_ratio", type=float, default=0.2,
+                        help="Switch when coherence drops to this fraction of peak")
+    parser.add_argument("--dyn_warmup_steps", type=int, default=50,
+                        help="Steps before tracking peak coherence")
+    parser.add_argument("--dyn_min_steps", type=int, default=100,
+                        help="Minimum steps before allowing switch")
+    parser.add_argument("--dyn_log_interval", type=int, default=10,
+                        help="Steps between coherence log prints")
     
     # Target modules & data ratio
     parser.add_argument("--target_modules", type=str, default="q_proj,k_proj,v_proj")
     parser.add_argument("--train_data_ratio", type=int, default=100,
                         help="Percentage of training data to use (1-100)")
+    parser.add_argument("--max_train_samples", type=int, default=0,
+                        help="Max number of training samples (0=no limit). Applied after train_data_ratio.")
 
     # WandB
     parser.add_argument("--wandb_project", type=str, default="Llama2-CommonsenseReasoning")

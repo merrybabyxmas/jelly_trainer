@@ -45,11 +45,14 @@ TARGET_MODULES="query,key,value"  # ViT attention layers
 # - "parallel": Start with Parallel mode (same as LoRA)
 # - "sequential": Use Sequential mode throughout
 # - "seq2par": Start Sequential -> Switch to Parallel (at switch_epoch)
-JELLY_MODE="seq2par"
-SWITCH_EPOCH=3
+# - "dynamic": Start Sequential -> Auto-switch via Gradient Coherence
+JELLY_MODE="dynamic"
 
 # Data Ratio (1-100, percentage of training data to use)
 TRAIN_DATA_RATIO=100
+
+# Data Slicing (0=no limit, >0=cap training samples for faster iteration)
+MAX_TRAIN_SAMPLES=0
 
 # Wandb 설정
 WANDB_PROJECT="[JELLY]IC-comparison"
@@ -63,7 +66,7 @@ cd "$PROJECT_ROOT"
 echo "============================================================"
 echo " Image Classification Comparison 실험"
 echo " GPUs: $GPUS | Per GPU Tasks: $PER_GPU_TASKS"
-echo " JELLY Mode: $JELLY_MODE | Switch Epoch: $SWITCH_EPOCH"
+echo " JELLY Mode: $JELLY_MODE"
 echo " 최대 동시 실행 작업 수: $(($(echo $GPUS | tr ',' '\n' | wc -l) * PER_GPU_TASKS))"
 echo "============================================================"
 
@@ -81,12 +84,12 @@ if [ "$TEST_MODE" = true ]; then
         --weight_decay $WEIGHT_DECAY \
         --warmup_ratio $WARMUP_RATIO \
         --jelly_mode "$JELLY_MODE" \
-        --switch_epoch $SWITCH_EPOCH \
         --r $R \
         --alpha $ALPHA \
         --lora_dropout $LORA_DROPOUT \
         --target_modules "$TARGET_MODULES" \
         --train_data_ratio $TRAIN_DATA_RATIO \
+        --max_train_samples $MAX_TRAIN_SAMPLES \
         --wandb_project "$WANDB_PROJECT" \
         --test
 else
@@ -104,11 +107,11 @@ else
         --warmup_ratio $WARMUP_RATIO \
         --r $R \
         --jelly_mode "$JELLY_MODE" \
-        --switch_epoch $SWITCH_EPOCH \
         --alpha $ALPHA \
         --lora_dropout $LORA_DROPOUT \
         --target_modules "$TARGET_MODULES" \
         --train_data_ratio $TRAIN_DATA_RATIO \
+        --max_train_samples $MAX_TRAIN_SAMPLES \
         --wandb_project "$WANDB_PROJECT"
 fi
 

@@ -36,6 +36,7 @@ class TrainingConfig:
     max_grad_norm: float = 1.0
     grad_accum: int = 1
     train_data_ratio: int = 100  # 1-100, percentage of training data to use
+    max_train_samples: int = 0   # 0 = no limit, >0 = cap training samples
 
 
 @dataclass
@@ -50,8 +51,8 @@ class LoRAConfig:
 @dataclass
 class JELLYConfig:
     """JELLY (Joint Efficient Learning with Layer-Yielding) Parameters"""
-    jelly_mode: str = "seq2par"  # parallel, sequential, seq2par
-    switch_epoch: float = 3.0
+    jelly_mode: str = "dynamic"  # parallel, sequential, seq2par, dynamic
+    switch_epoch: float = 3.0  # only used for seq2par mode
 
 
 # 기본 설정값
@@ -253,6 +254,7 @@ class BaseExperimentRunner(ABC):
             "--lora_dropout", str(lc.dropout),
             "--target_modules", lc.target_modules,
             "--train_data_ratio", str(tc.train_data_ratio),
+            "--max_train_samples", str(tc.max_train_samples),
         ]
 
         # Wandb 설정 전달
@@ -266,10 +268,9 @@ class BaseExperimentRunner(ABC):
         # JELLY 전용 파라미터
         if method == "jelly":
             jc = self.jelly_config
-            args.extend([
-                "--jelly_mode", jc.jelly_mode,
-                "--switch_epoch", str(jc.switch_epoch),
-            ])
+            args.extend(["--jelly_mode", jc.jelly_mode])
+            if jc.jelly_mode == "seq2par":
+                args.extend(["--switch_epoch", str(jc.switch_epoch)])
 
         return args
 

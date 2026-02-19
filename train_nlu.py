@@ -159,7 +159,13 @@ def main(args):
         subset_size = max(1, subset_size)
         encoded_dataset["train"] = encoded_dataset["train"].select(range(subset_size))
         print(f"[*] Using {args.train_data_ratio}% of training data: {subset_size}/{original_train_size}")
-    
+    if args.max_train_samples > 0 and len(encoded_dataset["train"]) > args.max_train_samples:
+        encoded_dataset["train"] = encoded_dataset["train"].select(range(args.max_train_samples))
+        print(f"[*] max_train_samples={args.max_train_samples}: {len(encoded_dataset['train'])}/{original_train_size} samples")
+    sliced_train_size = len(encoded_dataset["train"])
+    if sliced_train_size < original_train_size:
+        print(f"[*] Training data sliced: {original_train_size} → {sliced_train_size}")
+
     total_train_samples = len(encoded_dataset["train"])
 
     # 모델 로드
@@ -273,6 +279,8 @@ def main(args):
         )
         wandb.run.summary["trainable_params"] = trainable
         wandb.run.summary["total_train_samples"] = total_train_samples
+        wandb.run.summary["validation/original_train_data_size"] = original_train_size
+        wandb.run.summary["validation/sliced_train_data_size"] = sliced_train_size
 
     # Parameter validation & wandb logging (all methods)
     log_adapter_params_to_wandb(model, adapter_type, peft_config=peft_cfg, target_modules=target_modules)
@@ -403,6 +411,8 @@ if __name__ == "__main__":
     
     # Data Ratio
     parser.add_argument("--train_data_ratio", type=int, default=100)
+    parser.add_argument("--max_train_samples", type=int, default=0,
+                        help="Max number of training samples (0=no limit). Applied after train_data_ratio.")
 
     # Gradient Accumulation
     parser.add_argument("--grad_accum", type=int, default=1)
