@@ -51,8 +51,8 @@ class LoRAConfig:
 @dataclass
 class JELLYConfig:
     """JELLY (Joint Efficient Learning with Layer-Yielding) Parameters"""
-    jelly_mode: str = "dynamic"  # parallel, sequential, seq2par, dynamic
-    switch_epoch: float = 3.0  # only used for seq2par mode
+    probe_steps: int = 200       # steps for probe phase (0 = skip probe, start parallel)
+    probe_init_scale: float = None  # scale for A_par init (None = auto √(1/d_in))
 
 
 # 기본 설정값
@@ -268,9 +268,9 @@ class BaseExperimentRunner(ABC):
         # JELLY 전용 파라미터
         if method == "jelly":
             jc = self.jelly_config
-            args.extend(["--jelly_mode", jc.jelly_mode])
-            if jc.jelly_mode == "seq2par":
-                args.extend(["--switch_epoch", str(jc.switch_epoch)])
+            args.extend(["--probe_steps", str(jc.probe_steps)])
+            if jc.probe_init_scale is not None:
+                args.extend(["--probe_init_scale", str(jc.probe_init_scale)])
 
         return args
 

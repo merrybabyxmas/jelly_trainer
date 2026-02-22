@@ -49,7 +49,7 @@ def register_jelly():
 
 class BestMetricCallback(TrainerCallback):
     """
-    Callback to track best metric during training
+    Callback to track best metric during training (higher is better: accuracy, f1, etc.)
 
     Args:
         main_metric: Metric name to track (e.g., "accuracy", "f1", "pearson")
@@ -89,6 +89,55 @@ class BestMetricCallback(TrainerCallback):
 
     def on_train_end(self, args, state, control, **kwargs):
         print(f"[TRAIN] Training completed. Best score: {self.best_score:.4f}")
+
+
+class BestLossCallback(TrainerCallback):
+    """
+    Callback to track best (minimum) eval_loss during training (lower is better).
+    Logs eval/best_loss, eval/best_perplexity, eval/perplexity to wandb each eval step.
+    """
+    def __init__(self):
+        self.best_loss = float("inf")
+        self.best_perplexity = float("inf")
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        import math
+        epoch = state.epoch or 0
+        if metrics:
+            loss = metrics.get("eval_loss")
+            if loss is not None:
+                perplexity = math.exp(min(loss, 20))  # cap to avoid overflow
+                is_best = loss < self.best_loss
+                if is_best:
+                    self.best_loss = loss
+                    self.best_perplexity = perplexity
+                print(
+                    f"[EVAL] Epoch {epoch:.2f}: eval_loss={loss:.4f} | "
+                    f"perplexity={perplexity:.2f} | "
+                    f"best_loss={self.best_loss:.4f}"
+                    + (" *" if is_best else "")
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "eval/best_loss": self.best_loss,
+                        "eval/best_perplexity": self.best_perplexity,
+                        "eval/perplexity": perplexity,
+                        "eval/loss": loss,
+                    }, step=state.global_step)
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        print("[TRAIN] Training started...")
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        epoch = int(state.epoch) if state.epoch else 0
+        print(f"[TRAIN] Epoch {epoch + 1}/{int(args.num_train_epochs)} starting...")
+
+    def on_train_end(self, args, state, control, **kwargs):
+        print(
+            f"[TRAIN] Training completed. "
+            f"Best eval_loss={self.best_loss:.4f} | "
+            f"Best perplexity={self.best_perplexity:.2f}"
+        )
 
 
 def print_trainable_parameters(model):
