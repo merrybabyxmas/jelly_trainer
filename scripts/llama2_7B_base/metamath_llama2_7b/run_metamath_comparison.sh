@@ -56,7 +56,7 @@ TARGET_MODULES="q_proj,k_proj,v_proj"
 # PROBE_STEPS: number of steps for probe phase
 #   - 200: ~5% of 10k-sample run (good default)
 #   - 0: skip probe, start parallel (equivalent to LoRA with orthogonal init)
-PROBE_STEPS=100
+PROBE_STEPS=150
 # PROBE_INIT_SCALE: scale for A_par after TASI (empty = auto sqrt(1/d_in))
 PROBE_INIT_SCALE=""
 

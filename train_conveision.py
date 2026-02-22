@@ -354,6 +354,9 @@ def main(args):
             preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
 
+    if at == "jelly":
+        print("\n[*] Executing JELLY Pre-train Probing for Conveision...")
+        trainer.run_probe()
     trainer.train()
 
     # Final evaluation

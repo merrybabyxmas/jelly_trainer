@@ -341,6 +341,8 @@ def main(args):
             probe_steps=args.probe_steps,
             probe_init_scale=args.probe_init_scale,
         )
+        print("\n[*] Executing JELLY Pre-train Probing for MetaMath...")
+        trainer.run_probe()
     else:
         trainer = Trainer(
             model=model,

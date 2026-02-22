@@ -325,6 +325,7 @@ def main(args):
             jelly_mode=args.jelly_mode,
             switch_epoch=args.switch_epoch,
         )
+        trainer.run_probe()
     else:
         trainer = Trainer(
             model=model,
